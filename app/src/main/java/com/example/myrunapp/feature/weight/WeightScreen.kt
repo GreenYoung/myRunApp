@@ -1,0 +1,714 @@
+package com.example.myrunapp.feature.weight
+
+import android.graphics.Paint
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.myrunapp.ui.components.AppPageTopBar
+import com.example.myrunapp.ui.components.AppDialogButtonRow
+import com.example.myrunapp.ui.components.AppDangerButton
+import com.example.myrunapp.ui.components.AppInputField
+import com.example.myrunapp.ui.components.AppPrimaryButton
+import com.example.myrunapp.ui.components.AppSecondaryButton
+import com.example.myrunapp.ui.components.ExerciseDatePicker
+import com.example.myrunapp.ui.components.PageTopSpacing
+import com.example.myrunapp.ui.theme.Accent
+import com.example.myrunapp.ui.theme.AppBackground
+import com.example.myrunapp.ui.theme.AppGrid
+import com.example.myrunapp.ui.theme.AppSecondaryText
+import com.example.myrunapp.ui.theme.AppSurface
+import com.example.myrunapp.ui.theme.MyRunAppTheme
+import java.util.Locale
+import kotlin.math.abs
+
+private val DetailGreen = Color(0xFF22C55E)
+private val DetailRed = Color(0xFFF87171)
+private val CardDark = Color(0xFF111820)
+private val CardLight = Color(0xFF151E26)
+private val RecordRowMinHeight = 64.dp
+
+@Composable
+fun WeightRoute(
+    viewModel: WeightViewModel,
+    onBack: () -> Unit,
+    onTrendClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val uiState by viewModel.uiState.collectAsState()
+
+    WeightDetailScreen(
+        uiState = uiState,
+        onBack = onBack,
+        onRecordClick = viewModel::showRecordDialog,
+        onEditRecord = viewModel::showEditRecordDialog,
+        onDeleteRecord = viewModel::deleteWeight,
+        onDismissRecordDialog = viewModel::hideRecordDialog,
+        onDateChange = viewModel::onInputDateChange,
+        onWeightChange = viewModel::onInputWeightChange,
+        onSaveWeight = viewModel::saveWeight,
+        onRangeChange = viewModel::onRangeChange,
+        onTrendClick = onTrendClick,
+        onTargetClick = viewModel::showTargetDialog,
+        onDismissTargetDialog = viewModel::hideTargetDialog,
+        onTargetWeightChange = viewModel::onTargetWeightChange,
+        onSaveTargetWeight = viewModel::saveTargetWeight,
+        modifier = modifier
+    )
+}
+
+@Composable
+fun WeightDetailScreen(
+    uiState: WeightUiState,
+    onBack: () -> Unit,
+    onRecordClick: () -> Unit,
+    onEditRecord: (WeightRecordItem) -> Unit,
+    onDeleteRecord: (WeightRecordItem) -> Unit,
+    onDismissRecordDialog: () -> Unit,
+    onDateChange: (String) -> Unit,
+    onWeightChange: (String) -> Unit,
+    onSaveWeight: () -> Unit,
+    onRangeChange: (WeightRange) -> Unit,
+    onTrendClick: () -> Unit,
+    onTargetClick: () -> Unit,
+    onDismissTargetDialog: () -> Unit,
+    onTargetWeightChange: (String) -> Unit,
+    onSaveTargetWeight: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(AppBackground)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(start = 23.dp, top = PageTopSpacing, end = 23.dp, bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            WeightDetailTopBar(onBack = onBack)
+            LatestWeightCard(uiState.weightDetail)
+            WeightOverviewCard(uiState.weightDetail)
+            WeightTrendEntryCard(uiState = uiState.weightDetail, onClick = onTrendClick)
+            RecentWeightRecords(
+                records = uiState.weightDetail.recentRecords,
+                onEditRecord = onEditRecord,
+                onDeleteRecord = onDeleteRecord
+            )
+            WeightActionSection(
+                targetWeight = uiState.weightDetail.targetWeight,
+                onTargetClick = onTargetClick,
+                onRecordClick = onRecordClick
+            )
+        }
+
+        if (uiState.isRecordDialogVisible) {
+            WeightInputDialog(
+                uiState = uiState,
+                onDismiss = onDismissRecordDialog,
+                onDateChange = onDateChange,
+                onWeightChange = onWeightChange,
+                onSave = onSaveWeight
+            )
+        }
+
+        if (uiState.isTargetDialogVisible) {
+            TargetWeightDialog(
+                value = uiState.inputTargetWeight,
+                error = uiState.targetInputError,
+                onValueChange = onTargetWeightChange,
+                onDismiss = onDismissTargetDialog,
+                onSave = onSaveTargetWeight
+            )
+        }
+    }
+}
+
+@Composable
+private fun WeightDetailTopBar(onBack: () -> Unit) {
+    AppPageTopBar(title = "体重详情", showBackButton = true, onBackClick = onBack)
+}
+
+@Composable
+private fun LatestWeightCard(detail: WeightDetailUiState) {
+    DetailCard {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("最新体重", color = AppSecondaryText, style = MaterialTheme.typography.titleMedium)
+                WeightValueText(weight = detail.latestWeight, numberSize = 54)
+                Text(
+                    text = detail.previousChange.toArrowChangeText(unit = true),
+                    color = detail.previousChange.toChangeColor(),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = detail.latestDate?.let { "记录日期：$it" } ?: "暂无记录",
+                    color = AppSecondaryText,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+            TargetProgressBlock(detail)
+        }
+    }
+}
+
+@Composable
+private fun TargetProgressBlock(detail: WeightDetailUiState) {
+    Column(
+        modifier = Modifier.width(96.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        if (detail.targetWeight == null || detail.targetProgress == null) {
+            Text("目标体重", color = AppSecondaryText, style = MaterialTheme.typography.bodySmall)
+            Text("未设置", color = Color.White, fontWeight = FontWeight.Bold)
+            return
+        }
+
+        Box(contentAlignment = Alignment.Center) {
+            Canvas(modifier = Modifier.size(74.dp)) {
+                val stroke = 7.dp.toPx()
+                drawCircle(color = AppGrid, radius = (size.minDimension - stroke) / 2f, style = Stroke(width = stroke))
+                drawArc(
+                    color = DetailGreen,
+                    startAngle = -90f,
+                    sweepAngle = 360f * detail.targetProgress,
+                    useCenter = false,
+                    style = Stroke(width = stroke, cap = StrokeCap.Round)
+                )
+            }
+            Text("${(detail.targetProgress * 100).toInt()}%", color = Color.White, fontWeight = FontWeight.Bold)
+        }
+        Text("目标进度", color = AppSecondaryText, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun WeightOverviewCard(detail: WeightDetailUiState) {
+    DetailCard {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(82.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OverviewItem(
+                title = "累计变化",
+                value = detail.totalChange.toSignedPlainText(),
+                subtitle = detail.firstWeight?.let { "初始 ${formatWeight(it)} kg" } ?: "初始 --",
+                color = detail.totalChange.toChangeColor(),
+                modifier = Modifier.weight(1f)
+            )
+            OverviewDivider()
+            OverviewItem(
+                title = "目标体重",
+                value = detail.targetWeight?.let { "${formatWeight(it)} kg" } ?: "未设置",
+                subtitle = detail.remainingWeight?.let { if (it <= 0.0) "已达成" else "剩余 ${formatWeight(it)} kg" } ?: "点击设置",
+                color = Color.White,
+                modifier = Modifier.weight(1f)
+            )
+            OverviewDivider()
+            OverviewItem(
+                title = "本周变化",
+                value = detail.weeklyChange.toSignedPlainText(),
+                subtitle = "最近7天",
+                color = detail.weeklyChange.toChangeColor(),
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun OverviewItem(
+    title: String,
+    value: String,
+    subtitle: String,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        Text(title, color = AppSecondaryText, style = MaterialTheme.typography.bodySmall)
+        Text(value, color = color, fontWeight = FontWeight.Bold, maxLines = 1)
+        Text(subtitle, color = AppSecondaryText, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+    }
+}
+
+@Composable
+private fun OverviewDivider() {
+    Box(
+        modifier = Modifier
+            .width(1.dp)
+            .height(54.dp)
+            .background(AppGrid.copy(alpha = 0.7f))
+    )
+}
+
+@Composable
+private fun WeightTrendEntryCard(
+    uiState: WeightDetailUiState,
+    onClick: () -> Unit
+) {
+    DetailCard(
+        modifier = Modifier.clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("体重趋势", color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    text = if (uiState.recentRecords.isEmpty()) "记录体重后查看完整趋势" else "7天 / 30天 / 90天 / 全部",
+                    color = AppSecondaryText,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+            Text("查看", color = DetailGreen, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun RecentWeightRecords(
+    records: List<WeightRecordItem>,
+    onEditRecord: (WeightRecordItem) -> Unit,
+    onDeleteRecord: (WeightRecordItem) -> Unit
+) {
+    var actionRecord by remember { mutableStateOf<WeightRecordItem?>(null) }
+    var pendingDeleteRecord by remember { mutableStateOf<WeightRecordItem?>(null) }
+
+    DetailCard {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("体重记录", color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            if (records.isEmpty()) {
+                Text("暂无记录", color = AppSecondaryText, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+                return@Column
+            }
+            Column(modifier = Modifier.fillMaxWidth()) {
+                records.forEach { record ->
+                    WeightRecordRow(record = record, onLongClick = { actionRecord = record })
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.10f), thickness = 1.dp)
+                }
+            }
+        }
+    }
+
+    actionRecord?.let { record ->
+        WeightRecordActionDialog(
+            record = record,
+            onDismiss = { actionRecord = null },
+            onEdit = {
+                actionRecord = null
+                onEditRecord(record)
+            },
+            onDelete = {
+                actionRecord = null
+                pendingDeleteRecord = record
+            }
+        )
+    }
+
+    pendingDeleteRecord?.let { record ->
+        DeleteWeightRecordDialog(
+            record = record,
+            onDismiss = { pendingDeleteRecord = null },
+            onDelete = {
+                onDeleteRecord(record)
+                pendingDeleteRecord = null
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun WeightRecordRow(record: WeightRecordItem, onLongClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = {},
+                onLongClick = onLongClick
+            )
+            .defaultMinSize(minHeight = RecordRowMinHeight)
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = record.date,
+            modifier = Modifier.weight(1.45f),
+            color = AppSecondaryText,
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 1
+        )
+        Text(
+            text = "${formatWeight(record.weightKg)} kg",
+            modifier = Modifier.weight(1f),
+            color = Color.White,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1
+        )
+        Text(
+            text = record.previousChange.toArrowChangeText(unit = false),
+            modifier = Modifier.weight(0.85f),
+            color = record.previousChange.toChangeColor(),
+            fontWeight = FontWeight.Bold,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun WeightRecordActionDialog(
+    record: WeightRecordItem,
+    onDismiss: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = AppSurface,
+        title = { Text("记录操作", color = Color.White, fontWeight = FontWeight.Bold) },
+        text = {
+            Text(
+                text = "${record.date} · ${formatWeight(record.weightKg)} kg",
+                color = AppSecondaryText,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        },
+        confirmButton = {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                AppSecondaryButton(text = "取消", onClick = onDismiss, modifier = Modifier.weight(1f), height = 52.dp)
+                AppPrimaryButton(text = "编辑", onClick = onEdit, modifier = Modifier.weight(1f), height = 52.dp)
+                AppDangerButton(text = "删除", onClick = onDelete, modifier = Modifier.weight(1f))
+            }
+        }
+    )
+}
+
+@Composable
+private fun DeleteWeightRecordDialog(
+    record: WeightRecordItem,
+    onDismiss: () -> Unit,
+    onDelete: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = AppSurface,
+        title = { Text("删除体重记录", color = Color.White, fontWeight = FontWeight.Bold) },
+        text = {
+            Text(
+                text = "${record.date} · ${formatWeight(record.weightKg)} kg",
+                color = AppSecondaryText,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        },
+        confirmButton = {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                AppSecondaryButton(text = "取消", onClick = onDismiss, modifier = Modifier.weight(1f), height = 52.dp)
+                AppDangerButton(text = "删除", onClick = onDelete, modifier = Modifier.weight(1f))
+            }
+        }
+    )
+}
+
+@Composable
+private fun WeightActionSection(
+    targetWeight: Double?,
+    onTargetClick: () -> Unit,
+    onRecordClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        AppSecondaryButton(
+            text = "目标体重\n${targetWeight?.let { "${formatWeight(it)} kg" } ?: "未设置"}",
+            onClick = onTargetClick,
+            modifier = Modifier.weight(1f),
+            height = 58.dp
+        )
+        AppPrimaryButton(text = "+ 记录体重", onClick = onRecordClick, modifier = Modifier.weight(1f), height = 58.dp)
+    }
+}
+
+@Composable
+private fun WeightValueText(weight: Double?, numberSize: Int) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+        Text(
+            text = weight?.let(::formatWeight) ?: "--.--",
+            color = Color.White,
+            fontSize = numberSize.sp,
+            lineHeight = (numberSize + 4).sp,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.width(7.dp))
+        Text("kg", color = AppSecondaryText, fontSize = 20.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 7.dp))
+    }
+}
+
+@Composable
+private fun DetailCard(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        colors = CardDefaults.cardColors(containerColor = CardDark)
+    ) {
+        Column(
+            modifier = Modifier
+                .background(CardLight.copy(alpha = 0.18f))
+                .padding(18.dp),
+            content = content
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun WeightInputDialog(
+    uiState: WeightUiState,
+    onDismiss: () -> Unit,
+    onDateChange: (String) -> Unit,
+    onWeightChange: (String) -> Unit,
+    onSave: () -> Unit
+) {
+    var isCalendarVisible by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        modifier = Modifier.imePadding(),
+        onDismissRequest = onDismiss,
+        containerColor = AppSurface,
+        title = { Text("记录体重", color = Color.White, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                AppInputField(
+                    label = "体重 kg",
+                    value = uiState.inputWeight,
+                    onValueChange = onWeightChange,
+                    keyboardType = KeyboardType.Decimal
+                )
+                DatePickerField(selectedDate = uiState.inputDate, onClick = { isCalendarVisible = true })
+                uiState.inputError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+            }
+        },
+        confirmButton = { AppDialogButtonRow(onCancel = onDismiss, onConfirm = onSave, confirmText = "保存") }
+    )
+
+    if (isCalendarVisible) {
+        ExerciseDatePicker(
+            selectedDateText = uiState.inputDate,
+            onDateSelected = {
+                onDateChange(it)
+                isCalendarVisible = false
+            },
+            onDismiss = { isCalendarVisible = false }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TargetWeightDialog(
+    value: String,
+    error: String?,
+    onValueChange: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onSave: () -> Unit
+) {
+    AlertDialog(
+        modifier = Modifier.imePadding(),
+        onDismissRequest = onDismiss,
+        containerColor = AppSurface,
+        title = { Text("设置目标体重", color = Color.White, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                AppInputField(
+                    label = "目标体重 kg",
+                    value = value,
+                    onValueChange = onValueChange,
+                    keyboardType = KeyboardType.Decimal
+                )
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+            }
+        },
+        confirmButton = { AppDialogButtonRow(onCancel = onDismiss, onConfirm = onSave, confirmText = "保存") }
+    )
+}
+
+@Composable
+private fun DatePickerField(
+    selectedDate: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(AppBackground, RoundedCornerShape(8.dp))
+            .border(1.dp, AppGrid, RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column {
+            Text("日期", color = AppSecondaryText, style = MaterialTheme.typography.bodySmall)
+            Text(selectedDate, color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        }
+        Text("选择", color = Accent, fontWeight = FontWeight.Bold)
+    }
+}
+
+private val WeightRange.label: String
+    get() = when (this) {
+        WeightRange.DAYS_7 -> "7天"
+        WeightRange.DAYS_30 -> "30天"
+        WeightRange.DAYS_90 -> "90天"
+        WeightRange.ALL -> "全部"
+    }
+
+private fun Double?.toArrowChangeText(unit: Boolean): String {
+    if (this == null) return "--"
+    val suffix = if (unit) " kg" else ""
+    val value = formatWeight(abs(this))
+    return when {
+        this < 0.0 -> "↓ $value$suffix"
+        this > 0.0 -> "↑ $value$suffix"
+        else -> "0.00$suffix"
+    }
+}
+
+private fun Double?.toSignedPlainText(): String {
+    if (this == null) return "--"
+    return String.format(Locale.US, "%+.2f kg", this)
+}
+
+private fun Double?.toChangeColor(): Color {
+    return when {
+        this == null -> AppSecondaryText
+        this < 0.0 -> DetailGreen
+        this > 0.0 -> DetailRed
+        else -> AppSecondaryText
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun WeightDetailScreenPreview() {
+    MyRunAppTheme(darkTheme = true) {
+        WeightDetailScreen(
+            uiState = WeightUiState(
+                weightDetail = WeightDetailUiState(
+                    latestWeight = 77.20,
+                    previousChange = -0.30,
+                    totalChange = -1.80,
+                    weeklyChange = -0.60,
+                    firstWeight = 79.00,
+                    targetWeight = 72.00,
+                    remainingWeight = 5.20,
+                    targetProgress = 0.35f,
+                    latestDate = "2026-08-20",
+                    chartRecords = listOf(
+                        WeightPoint("2026-08-16", 78.0),
+                        WeightPoint("2026-08-17", 77.8),
+                        WeightPoint("2026-08-18", 77.6),
+                        WeightPoint("2026-08-19", 77.5),
+                        WeightPoint("2026-08-20", 77.2)
+                    ),
+                    recentRecords = listOf(
+                        WeightRecordItem("2026-08-20", 77.2, -0.3),
+                        WeightRecordItem("2026-08-19", 77.5, -0.1)
+                    )
+                )
+            ),
+            onBack = {},
+            onRecordClick = {},
+            onEditRecord = {},
+            onDeleteRecord = {},
+            onDismissRecordDialog = {},
+            onDateChange = {},
+            onWeightChange = {},
+            onSaveWeight = {},
+            onRangeChange = {},
+            onTrendClick = {},
+            onTargetClick = {},
+            onDismissTargetDialog = {},
+            onTargetWeightChange = {},
+            onSaveTargetWeight = {}
+        )
+    }
+}
