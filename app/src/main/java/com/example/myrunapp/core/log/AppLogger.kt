@@ -9,8 +9,10 @@ object AppLogger {
 
     fun init(context: Context) {
         if (!BuildConfig.ENABLE_FILE_LOG) return
-        fileLogWriter.init(context.applicationContext.cacheDir)
-        i(LogTags.APP, "file logging initialized dir=${context.applicationContext.cacheDir.absolutePath}/logs")
+        val appContext = context.applicationContext
+        val cacheRoot = appContext.externalCacheDir ?: appContext.cacheDir
+        val logDir = fileLogWriter.init(cacheRoot)
+        i(LogTags.APP, "file logging initialized dir=${logDir.absolutePath}")
     }
 
     fun d(tag: String, message: String) {

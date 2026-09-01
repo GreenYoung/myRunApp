@@ -25,6 +25,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.myrunapp.feature.run.AMapTrackPreview
+import com.example.myrunapp.feature.run.RunInfoMetricUiModel
+import com.example.myrunapp.feature.run.RunInfoOverlayCard
 import com.example.myrunapp.feature.run.RunTrackPointUiModel
 import com.example.myrunapp.ui.components.AppBackButton
 import com.example.myrunapp.ui.components.AppPageTopBar
@@ -103,38 +105,16 @@ private fun OutdoorRunInfoOverlayCard(
     record: ExerciseRecordUiModel,
     modifier: Modifier = Modifier
 ) {
-    Surface(
+    RunInfoOverlayCard(
+        title = record.typeText,
+        dateText = formatExerciseInputDate(record.startTime),
+        firstRow = RunInfoMetricUiModel(record.distanceText, "距离") to
+            RunInfoMetricUiModel(record.durationText, "时长"),
+        secondRow = RunInfoMetricUiModel(record.paceText, "平均配速") to
+            RunInfoMetricUiModel(record.caloriesText, "消耗"),
         modifier = modifier,
-        shape = RoundedCornerShape(22.dp),
-        color = Color(0xF2111820),
-        shadowElevation = 8.dp
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(record.typeText, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Text(formatExerciseInputDate(record.startTime), color = AppSecondaryText, fontWeight = FontWeight.Medium)
-            }
-            DetailMetricRow(
-                leftValue = record.distanceText,
-                leftLabel = "距离",
-                rightValue = record.durationText,
-                rightLabel = "时长"
-            )
-            DetailMetricRow(
-                leftValue = record.paceText,
-                leftLabel = "平均配速",
-                rightValue = record.caloriesText,
-                rightLabel = "消耗"
-            )
-        }
-    }
+        metricValueColor = Color.White
+    )
 }
 
 @Composable

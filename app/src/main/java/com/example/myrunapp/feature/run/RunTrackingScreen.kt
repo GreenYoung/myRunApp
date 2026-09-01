@@ -8,7 +8,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -33,7 +32,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.myrunapp.core.log.AppLogger
+import com.example.myrunapp.core.log.LogTags
+import com.example.myrunapp.feature.exercise.formatCalories
 import com.example.myrunapp.feature.exercise.formatDistance
+import com.example.myrunapp.feature.exercise.formatDuration
 import com.example.myrunapp.ui.components.AppDangerButton
 import com.example.myrunapp.ui.components.AppDialogButtonRow
 import com.example.myrunapp.ui.components.AppBackButton
@@ -45,6 +48,9 @@ import com.example.myrunapp.ui.theme.AppSurface
 import com.example.myrunapp.ui.theme.MyRunAppTheme
 
 private val RunGreen = Color(0xFF22C55E)
+private val RunBottomPadding = 24.dp
+private val RunBottomItemSpacing = 12.dp
+private val RunActionButtonHeight = 52.dp
 
 @Composable
 fun RunTrackingRoute(
@@ -91,6 +97,14 @@ fun RunTrackingScreen(
     modifier: Modifier = Modifier
 ) {
     var showDiscardDialog by remember { mutableStateOf(false) }
+    val hasRunInfo = uiState.isTracking || uiState.distanceKm > 0.0 || uiState.durationSeconds > 0L
+
+    LaunchedEffect(uiState.isTracking, uiState.trackPoints.size, uiState.distanceKm) {
+        AppLogger.d(
+            LogTags.RUN,
+            "RUN_UI state isTracking=${uiState.isTracking} points=${uiState.trackPoints.size} distance=${"%.4f".format(uiState.distanceKm)}"
+        )
+    }
 
     Box(
         modifier = modifier
@@ -126,6 +140,15 @@ fun RunTrackingScreen(
                 .padding(top = PageTopSpacing + 7.dp)
         )
 
+        uiState.errorMessage?.let {
+            RunTrackingErrorMessage(
+                text = it,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = PageHorizontalPadding)
+            )
+        }
+
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -134,9 +157,22 @@ fun RunTrackingScreen(
                 .padding(
                     start = PageHorizontalPadding,
                     end = PageHorizontalPadding,
-                    bottom = 24.dp
+                    bottom = RunBottomPadding
                 ),
+            verticalArrangement = Arrangement.spacedBy(RunBottomItemSpacing)
         ) {
+            if (hasRunInfo) {
+                RunInfoOverlayCard(
+                    title = "户外跑步",
+                    dateText = "实时记录",
+                    firstRow = RunInfoMetricUiModel("${formatDistance(uiState.distanceKm)} km", "距离") to
+                        RunInfoMetricUiModel(formatDuration(uiState.durationSeconds), "时长"),
+                    secondRow = RunInfoMetricUiModel(uiState.averagePaceText, "平均配速") to
+                        RunInfoMetricUiModel("${formatCalories(uiState.caloriesKcal)} kcal", "消耗"),
+                    modifier = Modifier.fillMaxWidth(),
+                    metricValueColor = Color.White
+                )
+            }
             RunTrackingOverlayCard(
                 uiState = uiState,
                 onRequestPermission = onRequestPermission,
@@ -168,6 +204,22 @@ fun RunTrackingScreen(
 }
 
 @Composable
+private fun RunTrackingErrorMessage(
+    text: String,
+    modifier: Modifier = Modifier
+) {
+    Text(
+        text = text,
+        color = MaterialTheme.colorScheme.error,
+        style = MaterialTheme.typography.bodyMedium,
+        textAlign = TextAlign.Center,
+        modifier = modifier
+            .background(Color(0xB3111820), androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+    )
+}
+
+@Composable
 private fun RunTrackingOverlayCard(
     uiState: RunTrackingUiState,
     onRequestPermission: () -> Unit,
@@ -175,73 +227,16 @@ private fun RunTrackingOverlayCard(
     onFinish: () -> Unit
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 15.dp, vertical = 14.dp),
+        modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        if (uiState.isTracking || uiState.distanceKm > 0.0 || uiState.durationSeconds > 0L) {
-            RunDistanceBlock(distanceKm = uiState.distanceKm)
-            RunMetricsRow(uiState = uiState)
-        }
-        uiState.errorMessage?.let {
-            Text(
-                text = it,
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
         RunTrackingActionButton(
             uiState = uiState,
             onRequestPermission = onRequestPermission,
             onStart = onStart,
             onFinish = onFinish
         )
-    }
-}
-
-@Composable
-private fun RunDistanceBlock(distanceKm: Double) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        Text(
-            text = "${formatDistance(distanceKm)} km",
-            color = RunGreen,
-            fontSize = 46.sp,
-            lineHeight = 50.sp,
-            fontWeight = FontWeight.Bold
-        )
-        Text("当前距离", color = AppSecondaryText, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-    }
-}
-
-@Composable
-private fun RunMetricsRow(uiState: RunTrackingUiState) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        RunMetricItem(title = "运动时长", value = formatRunClock(uiState.durationSeconds), modifier = Modifier.weight(1f))
-        RunMetricItem(title = "平均配速", value = uiState.averagePaceText, modifier = Modifier.weight(1f))
-    }
-}
-
-@Composable
-private fun RunMetricItem(title: String, value: String, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier
-            .padding(vertical = 11.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        Text(value, color = RunGreen, fontSize = 19.sp, lineHeight = 22.sp, fontWeight = FontWeight.Bold)
-        Text(title, color = AppSecondaryText, fontSize = 11.sp, fontWeight = FontWeight.Medium)
     }
 }
 
@@ -283,21 +278,21 @@ private fun RunTrackingActionButton(
 ) {
     when {
         !uiState.hasLocationPermission -> {
-            AppPrimaryButton(text = "开启定位权限", onClick = onRequestPermission, modifier = Modifier.fillMaxWidth(), height = 52.dp)
+            AppPrimaryButton(text = "开启定位权限", onClick = onRequestPermission, modifier = Modifier.fillMaxWidth(), height = RunActionButtonHeight)
         }
         !uiState.hasNotificationPermission -> {
-            AppPrimaryButton(text = "开启通知权限", onClick = onRequestPermission, modifier = Modifier.fillMaxWidth(), height = 52.dp)
+            AppPrimaryButton(text = "开启通知权限", onClick = onRequestPermission, modifier = Modifier.fillMaxWidth(), height = RunActionButtonHeight)
         }
         uiState.isTracking -> {
             AppDangerButton(
                 text = if (uiState.isSaving) "保存中..." else "结束跑步",
                 onClick = onFinish,
                 modifier = Modifier.fillMaxWidth(),
-                height = 52.dp
+                height = RunActionButtonHeight
             )
         }
         else -> {
-            AppPrimaryButton(text = "开始跑步", onClick = onStart, modifier = Modifier.fillMaxWidth(), height = 52.dp)
+            AppPrimaryButton(text = "开始跑步", onClick = onStart, modifier = Modifier.fillMaxWidth(), height = RunActionButtonHeight)
         }
     }
 }

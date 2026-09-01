@@ -26,6 +26,7 @@ data class RunTrackingUiState(
     val distanceKm: Double = 0.0,
     val durationSeconds: Long = 0L,
     val averagePaceText: String = "--'--\"/km",
+    val caloriesKcal: Int = 0,
     val canSave: Boolean = false,
     val trackPoints: List<RunTrackPointUiModel> = emptyList(),
     val errorMessage: String? = null
@@ -33,6 +34,7 @@ data class RunTrackingUiState(
 
 data class RunTrackDetailUiState(
     val sessionId: Long = 0,
+    val startTime: Long? = null,
     val distanceKm: Double = 0.0,
     val durationSeconds: Long = 0L,
     val paceText: String = "--'--\"/km",

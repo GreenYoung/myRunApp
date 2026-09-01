@@ -133,6 +133,7 @@ class RunTrackingViewModel(
             } else {
                 RunTrackDetailUiState(
                     sessionId = session.id,
+                    startTime = session.startTime,
                     distanceKm = session.distanceKm,
                     durationSeconds = session.durationSeconds,
                     paceText = formatPace(session.durationSeconds, session.distanceKm),
