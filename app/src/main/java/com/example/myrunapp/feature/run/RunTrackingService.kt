@@ -10,6 +10,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.location.Location
 import android.location.LocationManager
 import android.os.Build
@@ -17,6 +18,7 @@ import android.os.Bundle
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.amap.api.location.AMapLocation
 import com.amap.api.location.AMapLocationClient
@@ -50,6 +52,7 @@ class RunTrackingService : Service() {
     private var isSaving = false
     private var startTime: Long = 0L
     private var totalDistanceMeters = 0.0
+    private var trackingWeightKg = 70.0
 
     override fun onCreate() {
         super.onCreate()
@@ -64,6 +67,11 @@ class RunTrackingService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        AppLogger.i(
+            LogTags.RUN,
+            "RunTrackingService onStartCommand action=${intent?.action} flags=$flags startId=$startId " +
+                "isTracking=${RunTrackingStateStore.state.value.isTracking}"
+        )
         when (intent?.action) {
             ACTION_START -> startTracking()
             ACTION_FINISH -> finishTracking()
@@ -73,9 +81,19 @@ class RunTrackingService : Service() {
     }
 
     override fun onDestroy() {
+        AppLogger.i(LogTags.RUN, "RunTrackingService destroying isTracking=${RunTrackingStateStore.state.value.isTracking}")
         stopLocationUpdates()
         stopTimer()
         super.onDestroy()
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        AppLogger.w(
+            LogTags.RUN,
+            "RunTrackingService onTaskRemoved isTracking=${RunTrackingStateStore.state.value.isTracking} " +
+                "points=${RunTrackingStateStore.state.value.trackPoints.size}"
+        )
+        super.onTaskRemoved(rootIntent)
     }
 
     @SuppressLint("MissingPermission")
@@ -109,10 +127,11 @@ class RunTrackingService : Service() {
         }
         AppLogger.i(LogTags.GPS, "startTracking source=AMap gpsEnabled=$isGpsEnabled networkEnabled=$isNetworkEnabled")
 
-        startForeground(NOTIFICATION_ID, buildNotification(RunTrackingStateStore.state.value))
+        startRunForeground()
 
         startTime = System.currentTimeMillis()
         totalDistanceMeters = 0.0
+        trackingWeightKg = 70.0
         gpsTrackFilter.reset()
         RunTrackingStateStore.update {
             RunTrackingUiState(
@@ -123,6 +142,7 @@ class RunTrackingService : Service() {
                 gpsStatusText = "等待 GPS 定位"
             )
         }
+        loadTrackingWeight()
         startTimer()
 
         try {
@@ -174,6 +194,7 @@ class RunTrackingService : Service() {
         isSaving = false
         startTime = 0L
         totalDistanceMeters = 0.0
+        trackingWeightKg = 70.0
         gpsTrackFilter.reset()
         RunTrackingStateStore.reset()
         stopForegroundAndSelf()
@@ -229,12 +250,14 @@ class RunTrackingService : Service() {
                     val distanceKm = totalDistanceMeters / 1000.0
                     AppLogger.d(
                         LogTags.TRACK,
-                        "accepted point size=${points.size} delta=${"%.2f".format(result.distanceFromPreviousMeters)}m total=${"%.4f".format(distanceKm)}km accuracy=${result.point.accuracyMeters}"
+                        "accepted point size=${points.size} delta=${"%.2f".format(result.distanceFromPreviousMeters)}m total=${"%.4f".format(distanceKm)}km " +
+                            "accuracy=${result.point.accuracyMeters} coord=${result.point.coordinateSystem} lat=${result.point.latitude} lon=${result.point.longitude}"
                     )
                     current.copy(
                         gpsStatusText = result.point.accuracyMeters?.let { "GPS 精度 ${it.toInt()}m" } ?: "GPS 信号良好",
                         distanceKm = distanceKm,
                         averagePaceText = formatPace(current.durationSeconds, distanceKm),
+                        caloriesKcal = calculateRunCalories(current.durationSeconds, distanceKm),
                         canSave = current.durationSeconds > 0L && distanceKm > 0.0 && points.size >= 2,
                         trackPoints = points,
                         errorMessage = null
@@ -265,6 +288,7 @@ class RunTrackingService : Service() {
                     current.copy(
                         durationSeconds = durationSeconds,
                         averagePaceText = formatPace(durationSeconds, current.distanceKm),
+                        caloriesKcal = calculateRunCalories(durationSeconds, current.distanceKm),
                         canSave = durationSeconds > 0L && current.distanceKm > 0.0 && current.trackPoints.size >= 2
                     )
                 }
@@ -278,12 +302,41 @@ class RunTrackingService : Service() {
         timerJob = null
     }
 
+    private fun loadTrackingWeight() {
+        serviceScope.launch(Dispatchers.IO) {
+            val recordDate = todayIsoDate()
+            val weightKg = AppDatabase.getInstance(applicationContext)
+                .weightDao()
+                .getLatestWeightOnOrBefore(recordDate)
+                ?.weightKg ?: 70.0
+            trackingWeightKg = weightKg
+            RunTrackingStateStore.update { current ->
+                current.copy(caloriesKcal = calculateRunCalories(current.durationSeconds, current.distanceKm))
+            }
+            AppLogger.d(LogTags.RUN, "tracking calories weight loaded weightKg=$weightKg")
+        }
+    }
+
+    private fun calculateRunCalories(durationSeconds: Long, distanceKm: Double): Int {
+        return estimateExerciseCalories(
+            weightKg = trackingWeightKg,
+            type = ExerciseType.OUTDOOR_RUNNING,
+            durationSeconds = durationSeconds,
+            distanceKm = distanceKm,
+            inclinePercent = 0.0
+        )
+    }
+
     private fun stopLocationUpdates() {
         runCatching {
+            AppLogger.i(LogTags.GPS, "disable AMap background location")
+            amapLocationClient?.disableBackgroundLocation(false)
             amapLocationClient?.stopLocation()
             amapLocationClient?.onDestroy()
             amapLocationClient = null
             AppLogger.i(LogTags.GPS, "AMap location updates stopped")
+        }.onFailure {
+            AppLogger.e(LogTags.GPS, "stop AMap location updates failed", it)
         }
     }
 
@@ -306,6 +359,8 @@ class RunTrackingService : Service() {
             setLocationListener { location ->
                 handleAmapLocation(location)
             }
+            AppLogger.i(LogTags.GPS, "enable AMap background location notificationId=$NOTIFICATION_ID")
+            enableBackgroundLocation(NOTIFICATION_ID, buildNotification(RunTrackingStateStore.state.value))
             startLocation()
         }
     }
@@ -333,6 +388,22 @@ class RunTrackingService : Service() {
     private fun updateNotification() {
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.notify(NOTIFICATION_ID, buildNotification(RunTrackingStateStore.state.value))
+    }
+
+    private fun startRunForeground() {
+        val notification = buildNotification(RunTrackingStateStore.state.value)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            AppLogger.i(LogTags.RUN, "startForeground type=location notificationId=$NOTIFICATION_ID")
+            ServiceCompat.startForeground(
+                this,
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            )
+        } else {
+            AppLogger.i(LogTags.RUN, "startForeground legacy notificationId=$NOTIFICATION_ID")
+            startForeground(NOTIFICATION_ID, notification)
+        }
     }
 
     private fun buildNotification(state: RunTrackingUiState): Notification {
@@ -381,7 +452,7 @@ class RunTrackingService : Service() {
     private fun gpsRejectStatusText(reason: LocationRejectReason): String {
         return when (reason) {
             LocationRejectReason.NO_ACCURACY,
-            LocationRejectReason.POOR_ACCURACY -> "GPS 精度较弱"
+            LocationRejectReason.POOR_ACCURACY -> "定位成功，GPS 精度较弱"
             LocationRejectReason.STALE_LOCATION -> "已忽略过旧定位"
             LocationRejectReason.TOO_CLOSE -> "已过滤静止漂移"
             LocationRejectReason.TOO_FREQUENT -> "GPS 点过密，已忽略"
@@ -403,7 +474,7 @@ class RunTrackingService : Service() {
 
     private fun Location.toDebugText(): String {
         return "provider=$provider lat=$latitude lon=$longitude accuracy=${if (hasAccuracy()) accuracy else null} " +
-            "speed=${if (hasSpeed()) speed else null} time=$time elapsed=$elapsedRealtimeNanos"
+            "speed=${if (hasSpeed()) speed else null} time=$time elapsed=$elapsedRealtimeNanos ageMs=${locationAgeMs()}"
     }
 
     companion object {

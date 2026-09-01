@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -18,21 +17,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.myrunapp.feature.exercise.formatCalories
 import com.example.myrunapp.feature.exercise.formatDistance
 import com.example.myrunapp.feature.exercise.formatDuration
+import com.example.myrunapp.feature.exercise.formatExerciseInputDate
 import com.example.myrunapp.ui.components.AppBackButton
 import com.example.myrunapp.ui.components.PageHorizontalPadding
 import com.example.myrunapp.ui.components.PageTopSpacing
 import com.example.myrunapp.ui.theme.AppBackground
 import com.example.myrunapp.ui.theme.AppSecondaryText
 import com.example.myrunapp.ui.theme.MyRunAppTheme
-
-private val TrackAccentGreen = Color(0xFF22C55E)
 
 @Composable
 fun RunTrackDetailRoute(
@@ -123,78 +120,22 @@ private fun TrackDetailEmptyState(
 
 @Composable
 private fun TrackSummaryOverlay(uiState: RunTrackDetailUiState, modifier: Modifier = Modifier) {
-    Column(
+    RunInfoOverlayCard(
+        title = "户外跑步",
+        dateText = uiState.startTime?.let { formatExerciseInputDate(it) } ?: "--",
+        firstRow = RunInfoMetricUiModel("${formatDistance(uiState.distanceKm)} km", "距离") to
+            RunInfoMetricUiModel(formatDuration(uiState.durationSeconds), "时长"),
+        secondRow = RunInfoMetricUiModel(uiState.paceText, "平均配速") to
+            RunInfoMetricUiModel("${formatCalories(uiState.caloriesKcal)} kcal", "消耗"),
         modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        TrackDistanceBlock(uiState.distanceKm)
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            TrackMetric(formatDuration(uiState.durationSeconds), "时长", Modifier.weight(1f))
-            TrackMetric(uiState.paceText, "平均配速", Modifier.weight(1f))
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            TrackMetric("${formatCalories(uiState.caloriesKcal)} kcal", "消耗", Modifier.weight(1f))
-            TrackMetric("户外跑步", "类型", Modifier.weight(1f))
-        }
-    }
+        metricValueColor = Color.White
+    )
 }
 
 private fun RunTrackPointUiModel.hasValidMapCoordinate(): Boolean {
     return latitude in -90.0..90.0 &&
         longitude in -180.0..180.0 &&
         !(latitude == 0.0 && longitude == 0.0)
-}
-
-@Composable
-private fun TrackDistanceBlock(distanceKm: Double) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
-        Text(
-            text = "${formatDistance(distanceKm)} km",
-            color = TrackAccentGreen,
-            fontSize = 46.sp,
-            fontWeight = FontWeight.Black,
-            maxLines = 1
-        )
-        Text(
-            text = "运动距离",
-            color = AppSecondaryText,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium
-        )
-    }
-}
-
-@Composable
-private fun TrackMetric(value: String, label: String, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        Text(
-            text = value,
-            color = TrackAccentGreen,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1
-        )
-        Text(
-            text = label,
-            color = AppSecondaryText,
-            fontSize = 11.sp,
-            textAlign = TextAlign.Center
-        )
-    }
 }
 
 @Preview(showBackground = true)
@@ -204,6 +145,7 @@ private fun RunTrackDetailScreenPreview() {
         RunTrackDetailScreen(
             uiState = RunTrackDetailUiState(
                 sessionId = 1,
+                startTime = 1_777_046_400_000,
                 distanceKm = 5.2,
                 durationSeconds = 1_980,
                 paceText = "6'23\"/km",

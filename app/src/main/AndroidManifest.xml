@@ -39,6 +39,10 @@
             android:name=".feature.run.RunTrackingService"
             android:exported="false"
             android:foregroundServiceType="location" />
+        <service
+            android:name="com.amap.api.location.APSService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
     </application>
 
 </manifest>

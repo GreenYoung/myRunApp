@@ -12,6 +12,7 @@ import kotlin.math.roundToInt
 
 private const val DATE_PATTERN = "yyyy-MM-dd"
 private const val TIME_PATTERN = "HH:mm"
+private const val MAX_INCLINE_CALORIE_BONUS = 1.25
 
 fun todayExerciseDate(): String {
     return SimpleDateFormat(DATE_PATTERN, Locale.US).format(Calendar.getInstance().time)
@@ -127,20 +128,24 @@ fun estimateExerciseCalories(
     if (durationSeconds <= 0L || distanceKm <= 0.0) return 0
     val hours = durationSeconds / 3600.0
     val speedKmh = distanceKm / hours
-    val baseMet = when {
-        speedKmh < 6.0 -> 5.5
-        speedKmh < 8.0 -> 8.3
-        speedKmh < 10.0 -> 9.8
-        speedKmh < 12.0 -> 11.0
-        else -> 12.5
-    }
+    val distanceCoefficient = calorieDistanceCoefficient(speedKmh)
     val inclineBonus = if (type == ExerciseType.TREADMILL) {
-        1.0 + (inclinePercent.coerceAtLeast(0.0) * 0.035)
+        (1.0 + inclinePercent.coerceAtLeast(0.0) * 0.0125).coerceAtMost(MAX_INCLINE_CALORIE_BONUS)
     } else {
         1.0
     }
-    val minutes = durationSeconds / 60.0
-    return (baseMet * inclineBonus * 3.5 * weightKg / 200.0 * minutes).roundToInt().coerceAtLeast(0)
+    return (weightKg * distanceKm * distanceCoefficient * inclineBonus).roundToInt().coerceAtLeast(0)
+}
+
+private fun calorieDistanceCoefficient(speedKmh: Double): Double {
+    return when {
+        speedKmh < 4.0 -> 0.55
+        speedKmh < 6.0 -> 0.70
+        speedKmh < 8.0 -> 0.90
+        speedKmh < 10.0 -> 0.98
+        speedKmh < 12.0 -> 1.02
+        else -> 1.06
+    }
 }
 
 fun buildExerciseSummary(

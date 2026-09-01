@@ -12,10 +12,12 @@ class FileLogWriter {
     private val timeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
     private var logDir: File? = null
 
-    fun init(cacheDir: File) {
-        synchronized(lock) {
-            logDir = File(cacheDir, "logs").apply { mkdirs() }
+    fun init(cacheRoot: File): File {
+        return synchronized(lock) {
+            val targetDir = File(cacheRoot, "log").apply { mkdirs() }
+            logDir = targetDir
             deleteOldLogs()
+            targetDir
         }
     }
 

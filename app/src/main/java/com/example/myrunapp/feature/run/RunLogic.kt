@@ -8,11 +8,11 @@ import com.example.myrunapp.feature.run.data.RunTrackPointEntity
 import kotlin.math.roundToLong
 
 data class GpsTrackFilterConfig(
-    val maxAccuracyMeters: Float = 30f,
+    val maxAccuracyMeters: Float = 35f,
     val goodAccuracyMeters: Float = 15f,
     val excellentAccuracyMeters: Float = 10f,
     val warmupAcceptedPoints: Int = 2,
-    val warmupMaxAccuracyMeters: Float = 30f,
+    val warmupMaxAccuracyMeters: Float = 35f,
     val maxLocationAgeMs: Long = 5_000L,
     val minIntervalMs: Long = 1_000L,
     val minDistanceMeters: Float = 3f,
@@ -80,7 +80,11 @@ class GpsTrackFilter(
         val baseReject = baseRejectReason(location)
         if (baseReject != null) return LocationFilterResult.Rejected(baseReject)
 
-        val nextPoint = location.toRunTrackPoint()
+        val nextPoint = if (location is AMapLocation) {
+            location.toAmapRunTrackPoint()
+        } else {
+            location.toRunTrackPoint()
+        }
         val previousPoint = lastAcceptedPoint
 
         if (previousPoint == null) {
@@ -139,7 +143,7 @@ class GpsTrackFilter(
         if (!location.hasAccuracy()) return LocationRejectReason.NO_ACCURACY
         if (location.accuracy > config.maxAccuracyMeters) return LocationRejectReason.POOR_ACCURACY
 
-        val ageMs = ((SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos) / 1_000_000L)
+        val ageMs = location.locationAgeMs()
         if (ageMs > config.maxLocationAgeMs) return LocationRejectReason.STALE_LOCATION
 
         return null
@@ -217,12 +221,30 @@ fun Location.toRunTrackPoint(): RunTrackPointUiModel {
     )
 }
 
+fun AMapLocation.toAmapRunTrackPoint(): RunTrackPointUiModel {
+    return RunTrackPointUiModel(
+        latitude = latitude,
+        longitude = longitude,
+        accuracyMeters = if (accuracy > 0f) accuracy else null,
+        altitudeMeters = if (hasAltitude()) altitude else null,
+        speedMetersPerSecond = if (hasSpeed()) speed else null,
+        recordedAt = normalizedLocationTime(),
+        elapsedRealtimeNanos = 0L,
+        coordinateSystem = CoordinateSystem.GCJ02
+    )
+}
+
 private fun Location.detectCoordinateSystem(): String {
     return if (this is AMapLocation && isOffset) {
         CoordinateSystem.GCJ02
     } else {
         CoordinateSystem.WGS84
     }
+}
+
+private fun AMapLocation.normalizedLocationTime(): Long {
+    val now = System.currentTimeMillis()
+    return if (time > 0L && time <= now + 1_000L) time else now
 }
 
 fun durationSecondsSince(startTime: Long, now: Long = System.currentTimeMillis()): Long {
@@ -235,6 +257,15 @@ fun deltaTimeMs(from: RunTrackPointUiModel, to: RunTrackPointUiModel): Long {
     } else {
         to.recordedAt - from.recordedAt
     }
+}
+
+fun Location.locationAgeMs(): Long {
+    return if (this is AMapLocation) {
+        val now = System.currentTimeMillis()
+        if (time > 0L) now - time else 0L
+    } else {
+        (SystemClock.elapsedRealtimeNanos() - elapsedRealtimeNanos) / 1_000_000L
+    }.coerceAtLeast(0L)
 }
 
 @Suppress("DEPRECATION")
