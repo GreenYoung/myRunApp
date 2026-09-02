@@ -66,6 +66,7 @@ fun AMapRunTrackingMap(
     val lifecycleOwner = LocalLifecycleOwner.current
     var fallbackMapLocation by remember { mutableStateOf<RunMapLocation?>(null) }
     var mapConfigured by remember { mutableStateOf(false) }
+    var configuredMap by remember { mutableStateOf<AMap?>(null) }
     val fallbackLocationSignature = fallbackMapLocation?.let { location ->
         31 * (location.latLng.latitude * 1_000_000).roundToLong() +
             (location.latLng.longitude * 1_000_000).roundToLong()
@@ -130,12 +131,18 @@ fun AMapRunTrackingMap(
     }
 
     LaunchedEffect(mapView, locationSource, hasLocationPermission, shouldFollowNativeLocation) {
-        mapConfigured = false
+        if (mapConfigured) {
+            AppLogger.d(
+                LogTags.MAP,
+                "reconfigure tracking map without blocking render hasPermission=$hasLocationPermission followNative=$shouldFollowNativeLocation"
+            )
+        }
         AppLogger.d(
             LogTags.MAP,
             "request tracking map async configure hasPermission=$hasLocationPermission followNative=$shouldFollowNativeLocation"
         )
         mapView.getMapAsyn { map ->
+            configuredMap = map
             map.configureSportTrackUi()
             map.configureNativeMyLocation(context, locationSource, hasLocationPermission)
             map.configureRoadLevelNativeLocationZoom(shouldFollowNativeLocation)
@@ -164,17 +171,20 @@ fun AMapRunTrackingMap(
             AppLogger.d(LogTags.MAP, "skip track render before map configured")
             return@LaunchedEffect
         }
+        val map = configuredMap
+        if (map == null) {
+            AppLogger.d(LogTags.MAP, "skip track render because configured map is null")
+            return@LaunchedEffect
+        }
         if (lastDrawnSignature[0] == finalRenderSignature) return@LaunchedEffect
         lastDrawnSignature[0] = finalRenderSignature
-        mapView.getMapAsyn { map ->
-            map.renderRunTrackingTrack(
-                context = context,
-                mapView = mapView,
-                points = validPoints,
-                isTracking = isTracking,
-                fallbackMapLocation = fallbackMapLocation
-            )
-        }
+        map.renderRunTrackingTrack(
+            context = context,
+            mapView = mapView,
+            points = validPoints,
+            isTracking = isTracking,
+            fallbackMapLocation = fallbackMapLocation
+        )
     }
 
     AndroidView(
