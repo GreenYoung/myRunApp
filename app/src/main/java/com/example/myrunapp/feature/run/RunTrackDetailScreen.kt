@@ -13,6 +13,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -20,9 +23,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.myrunapp.feature.exercise.formatCalories
-import com.example.myrunapp.feature.exercise.formatDistance
-import com.example.myrunapp.feature.exercise.formatDuration
 import com.example.myrunapp.feature.exercise.formatExerciseInputDate
 import com.example.myrunapp.ui.components.AppBackButton
 import com.example.myrunapp.ui.components.PageHorizontalPadding
@@ -55,6 +55,8 @@ fun RunTrackDetailScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var mapDisplayType by remember { mutableStateOf(RunMapDisplayType.Normal) }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -63,7 +65,11 @@ fun RunTrackDetailScreen(
         val hasValidTrackPoint = uiState.points.any { it.hasValidMapCoordinate() }
 
         if (!uiState.isMissing && hasValidTrackPoint) {
-            AMapTrackPreview(points = uiState.points, modifier = Modifier.fillMaxSize())
+            AMapTrackPreview(
+                points = uiState.points,
+                mapDisplayType = mapDisplayType,
+                modifier = Modifier.fillMaxSize()
+            )
         } else {
             TrackDetailEmptyState(
                 title = if (uiState.isMissing) "未找到轨迹记录" else "暂无有效轨迹",
@@ -83,6 +89,17 @@ fun RunTrackDetailScreen(
                     end = PageHorizontalPadding
                 )
         )
+
+        if (!uiState.isMissing && hasValidTrackPoint) {
+            RunMapTypeToggle(
+                mapDisplayType = mapDisplayType,
+                onClick = { mapDisplayType = mapDisplayType.next() },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(end = PageHorizontalPadding, top = PageTopSpacing + 4.dp)
+            )
+        }
 
         if (!uiState.isMissing) {
             TrackSummaryOverlay(
@@ -123,10 +140,10 @@ private fun TrackSummaryOverlay(uiState: RunTrackDetailUiState, modifier: Modifi
     RunInfoOverlayCard(
         title = "户外跑步",
         dateText = uiState.startTime?.let { formatExerciseInputDate(it) } ?: "--",
-        firstRow = RunInfoMetricUiModel("${formatDistance(uiState.distanceKm)} km", "距离") to
-            RunInfoMetricUiModel(formatDuration(uiState.durationSeconds), "时长"),
-        secondRow = RunInfoMetricUiModel(uiState.paceText, "平均配速") to
-            RunInfoMetricUiModel("${formatCalories(uiState.caloriesKcal)} kcal", "消耗"),
+        firstRow = RunInfoMetricUiModel(formatRunInfoDistance(uiState.distanceKm), "距离") to
+            RunInfoMetricUiModel(formatRunInfoDuration(uiState.durationSeconds), "时长"),
+        secondRow = RunInfoMetricUiModel(formatRunInfoPace(uiState.paceText), "平均配速") to
+            RunInfoMetricUiModel(formatRunInfoCalories(uiState.caloriesKcal), "消耗"),
         modifier = modifier,
         metricValueColor = Color.White
     )

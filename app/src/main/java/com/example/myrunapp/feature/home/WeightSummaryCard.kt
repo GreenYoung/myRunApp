@@ -111,9 +111,8 @@ private fun WeightCardHeader(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            CalendarMark()
             Text(
-                text = if (hasTodayWeight) "今日已记录" else "今天还未记录",
+                text = if (hasTodayWeight) "✓ 今日已记录" else "今天还未记录",
                 color = if (hasTodayWeight) Accent else AppSecondaryText,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium

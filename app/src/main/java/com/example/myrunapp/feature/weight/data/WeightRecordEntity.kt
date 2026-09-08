@@ -7,6 +7,7 @@ import androidx.room.PrimaryKey
 data class WeightRecordEntity(
     @PrimaryKey val date: String,
     val weightKg: Double,
+    val note: String? = null,
     val createdAt: Long,
     val updatedAt: Long
 )

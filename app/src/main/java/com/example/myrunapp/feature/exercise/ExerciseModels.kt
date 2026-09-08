@@ -14,6 +14,12 @@ enum class ExerciseStatsRange {
     ALL
 }
 
+enum class ExerciseStatsPeriod {
+    WEEK,
+    MONTH,
+    YEAR
+}
+
 data class ExerciseSummaryUiState(
     val todayDistanceKm: Double = 0.0,
     val dailyGoalKm: Double = 8.0,
@@ -81,6 +87,9 @@ data class ExerciseDetailUiState(
     val monthlyCaloriesKcal: Int = 0,
     val selectedStatsRange: ExerciseStatsRange = ExerciseStatsRange.WEEK,
     val rangeStats: ExerciseRangeStatsUiState = ExerciseRangeStatsUiState(),
+    val trend: ExerciseTrendUiState = ExerciseTrendUiState(),
+    val personalBest: ExercisePersonalBestUiState = ExercisePersonalBestUiState(),
+    val consistency: ExerciseConsistencyUiState = ExerciseConsistencyUiState(),
     val records: List<ExerciseRecordUiModel> = emptyList()
 )
 
@@ -91,6 +100,52 @@ data class ExerciseRangeStatsUiState(
     val checkInDays: Int = 0,
     val averagePaceText: String = "--'--\"/km",
     val longestDistanceKm: Double = 0.0
+)
+
+data class ExerciseStatsDetailUiState(
+    val period: ExerciseStatsPeriod = ExerciseStatsPeriod.WEEK,
+    val title: String = "周统计",
+    val rangeText: String = "",
+    val totalDistanceKm: Double = 0.0,
+    val totalDurationSeconds: Long = 0L,
+    val recordCount: Int = 0,
+    val checkInDays: Int = 0,
+    val averageDistanceKm: Double = 0.0,
+    val averagePaceText: String = "--'--\"/km",
+    val fastestSpeedKmh: Double = 0.0,
+    val longestDistanceKm: Double = 0.0,
+    val highestCaloriesKcal: Int = 0
+)
+
+data class ExerciseTrendUiState(
+    val range: ExerciseStatsRange = ExerciseStatsRange.WEEK,
+    val points: List<ExerciseTrendPointUiState> = emptyList()
+)
+
+data class ExerciseTrendPointUiState(
+    val label: String,
+    val distanceKm: Double,
+    val durationSeconds: Long,
+    val averagePaceSecondsPerKm: Long?
+)
+
+data class ExercisePersonalBestUiState(
+    val longestDistance: ExercisePersonalBestItemUiState = ExercisePersonalBestItemUiState(),
+    val fastestOneKm: ExercisePersonalBestItemUiState = ExercisePersonalBestItemUiState(subtitle = "基于单次平均配速"),
+    val fastestFiveKm: ExercisePersonalBestItemUiState = ExercisePersonalBestItemUiState(subtitle = "基于单次平均配速"),
+    val highestCalories: ExercisePersonalBestItemUiState = ExercisePersonalBestItemUiState()
+)
+
+data class ExercisePersonalBestItemUiState(
+    val value: String = "--",
+    val dateText: String = "",
+    val subtitle: String = ""
+)
+
+data class ExerciseConsistencyUiState(
+    val streakDays: Int = 0,
+    val monthlyActiveDays: Int = 0,
+    val latestCheckInDateText: String = "--"
 )
 
 data class ExerciseGoalUiState(

@@ -5,6 +5,7 @@ import android.os.Build
 import android.os.SystemClock
 import com.amap.api.location.AMapLocation
 import com.example.myrunapp.feature.run.data.RunTrackPointEntity
+import java.util.Locale
 import kotlin.math.roundToLong
 
 data class GpsTrackFilterConfig(
@@ -193,6 +194,28 @@ fun formatRunClock(durationSeconds: Long): String {
     val minutes = (durationSeconds % 3600) / 60
     val seconds = durationSeconds % 60
     return "%02d:%02d:%02d".format(hours, minutes, seconds)
+}
+
+fun formatRunInfoDuration(durationSeconds: Long): String {
+    return formatRunClock(durationSeconds)
+}
+
+fun formatRunInfoDistance(distanceKm: Double): String {
+    return String.format(Locale.US, "%.2f 公里", distanceKm)
+}
+
+fun formatRunInfoPace(paceText: String): String {
+    return paceText
+        .replace("\"/km", "''/公里")
+        .replace("/km", "/公里")
+}
+
+fun formatRunInfoCalories(caloriesKcal: Int): String {
+    return "$caloriesKcal 大卡"
+}
+
+fun formatRunInfoCalories(caloriesText: String): String {
+    return caloriesText.replace("kcal", "大卡")
 }
 
 fun RunTrackPointUiModel.toEntity(sessionId: Long): RunTrackPointEntity {

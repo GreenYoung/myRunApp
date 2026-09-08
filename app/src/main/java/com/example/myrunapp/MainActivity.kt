@@ -15,6 +15,8 @@ import com.example.myrunapp.core.log.AppLogger
 import com.example.myrunapp.core.log.LogTags
 import com.example.myrunapp.feature.exercise.ExerciseRoute
 import com.example.myrunapp.feature.exercise.ExerciseRecordDetailRoute
+import com.example.myrunapp.feature.exercise.ExerciseStatsDetailRoute
+import com.example.myrunapp.feature.exercise.ExerciseStatsPeriod
 import com.example.myrunapp.feature.exercise.ExerciseViewModel
 import com.example.myrunapp.feature.exercise.ExerciseViewModelFactory
 import com.example.myrunapp.feature.exercise.data.ExerciseGoalRepository
@@ -37,7 +39,8 @@ private enum class AppDestination {
     WeightTrend,
     RunTracking,
     RunTrackDetail,
-    ExerciseRecordDetail
+    ExerciseRecordDetail,
+    ExerciseStatsDetail
 }
 
 class MainActivity : ComponentActivity() {
@@ -50,7 +53,11 @@ class MainActivity : ComponentActivity() {
         val database = AppDatabase.getInstance(applicationContext)
         val targetWeightRepository = TargetWeightRepository(applicationContext)
         val exerciseGoalRepository = ExerciseGoalRepository(applicationContext)
-        val weightViewModelFactory = WeightViewModelFactory(database.weightDao(), targetWeightRepository)
+        val weightViewModelFactory = WeightViewModelFactory(
+            database.weightDao(),
+            database.exerciseDao(),
+            targetWeightRepository
+        )
         val exerciseViewModelFactory = ExerciseViewModelFactory(
             database.exerciseDao(),
             database.runDao(),
@@ -72,6 +79,7 @@ class MainActivity : ComponentActivity() {
                 var destination by rememberSaveable { mutableStateOf(AppDestination.Home) }
                 var selectedRunSessionId by rememberSaveable { mutableStateOf<Long?>(null) }
                 var selectedExerciseRecordId by rememberSaveable { mutableStateOf<Long?>(null) }
+                var selectedExerciseStatsPeriod by rememberSaveable { mutableStateOf(ExerciseStatsPeriod.WEEK) }
 
                 when (destination) {
                     AppDestination.Home -> HomeScreen(
@@ -88,6 +96,10 @@ class MainActivity : ComponentActivity() {
                         onRecordClick = { recordId ->
                             selectedExerciseRecordId = recordId
                             destination = AppDestination.ExerciseRecordDetail
+                        },
+                        onStatsPeriodClick = { period ->
+                            selectedExerciseStatsPeriod = period
+                            destination = AppDestination.ExerciseStatsDetail
                         }
                     )
 
@@ -120,6 +132,12 @@ class MainActivity : ComponentActivity() {
                     AppDestination.ExerciseRecordDetail -> ExerciseRecordDetailRoute(
                         viewModel = exerciseViewModel,
                         recordId = selectedExerciseRecordId ?: 0L,
+                        onBack = { destination = AppDestination.Exercise }
+                    )
+
+                    AppDestination.ExerciseStatsDetail -> ExerciseStatsDetailRoute(
+                        viewModel = exerciseViewModel,
+                        period = selectedExerciseStatsPeriod,
                         onBack = { destination = AppDestination.Exercise }
                     )
                 }

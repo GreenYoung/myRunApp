@@ -18,6 +18,7 @@ object CoordinateSystem {
 
 data class RunTrackingUiState(
     val isTracking: Boolean = false,
+    val isPaused: Boolean = false,
     val hasLocationPermission: Boolean = false,
     val hasNotificationPermission: Boolean = true,
     val isServiceRunning: Boolean = false,

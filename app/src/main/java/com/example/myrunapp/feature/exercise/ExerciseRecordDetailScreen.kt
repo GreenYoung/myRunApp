@@ -16,6 +16,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -27,6 +30,12 @@ import androidx.compose.ui.unit.sp
 import com.example.myrunapp.feature.run.AMapTrackPreview
 import com.example.myrunapp.feature.run.RunInfoMetricUiModel
 import com.example.myrunapp.feature.run.RunInfoOverlayCard
+import com.example.myrunapp.feature.run.formatRunInfoCalories
+import com.example.myrunapp.feature.run.formatRunInfoDistance
+import com.example.myrunapp.feature.run.formatRunInfoDuration
+import com.example.myrunapp.feature.run.formatRunInfoPace
+import com.example.myrunapp.feature.run.RunMapDisplayType
+import com.example.myrunapp.feature.run.RunMapTypeToggle
 import com.example.myrunapp.feature.run.RunTrackPointUiModel
 import com.example.myrunapp.ui.components.AppBackButton
 import com.example.myrunapp.ui.components.AppPageTopBar
@@ -76,18 +85,32 @@ private fun OutdoorRunRecordDetailScreen(
     modifier: Modifier = Modifier
 ) {
     val record = uiState.record ?: return
+    var mapDisplayType by remember { mutableStateOf(RunMapDisplayType.Normal) }
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(DetailCardDark)
     ) {
-        AMapTrackPreview(points = uiState.trackPoints, modifier = Modifier.fillMaxSize())
+        AMapTrackPreview(
+            points = uiState.trackPoints,
+            mapDisplayType = mapDisplayType,
+            modifier = Modifier.fillMaxSize()
+        )
         AppBackButton(
             onClick = onBack,
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
                 .padding(start = PageHorizontalPadding, top = PageTopSpacing)
+        )
+        RunMapTypeToggle(
+            mapDisplayType = mapDisplayType,
+            onClick = { mapDisplayType = mapDisplayType.next() },
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(end = PageHorizontalPadding, top = PageTopSpacing + 4.dp)
         )
         OutdoorRunInfoOverlayCard(
             record = record,
@@ -108,10 +131,10 @@ private fun OutdoorRunInfoOverlayCard(
     RunInfoOverlayCard(
         title = record.typeText,
         dateText = formatExerciseInputDate(record.startTime),
-        firstRow = RunInfoMetricUiModel(record.distanceText, "距离") to
-            RunInfoMetricUiModel(record.durationText, "时长"),
-        secondRow = RunInfoMetricUiModel(record.paceText, "平均配速") to
-            RunInfoMetricUiModel(record.caloriesText, "消耗"),
+        firstRow = RunInfoMetricUiModel(formatRunInfoDistance(record.distanceKm), "距离") to
+            RunInfoMetricUiModel(formatRunInfoDuration(record.durationSeconds), "时长"),
+        secondRow = RunInfoMetricUiModel(formatRunInfoPace(record.paceText), "平均配速") to
+            RunInfoMetricUiModel(formatRunInfoCalories(record.caloriesText), "消耗"),
         modifier = modifier,
         metricValueColor = Color.White
     )

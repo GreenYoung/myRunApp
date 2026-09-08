@@ -7,6 +7,8 @@ import com.example.myrunapp.feature.run.data.RunTrackPointEntity
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
+import java.util.LinkedHashMap
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -47,6 +49,11 @@ fun formatDuration(totalSeconds: Long): String {
 fun formatPace(durationSeconds: Long, distanceKm: Double): String {
     if (distanceKm <= 0.0) return "--'--\"/km"
     val paceSeconds = (durationSeconds / distanceKm).roundToInt()
+    return formatPaceSeconds(paceSeconds.toLong())
+}
+
+fun formatPaceSeconds(paceSeconds: Long?): String {
+    if (paceSeconds == null || paceSeconds <= 0L) return "--'--\"/km"
     val minutes = paceSeconds / 60
     val seconds = paceSeconds % 60
     return String.format(Locale.US, "%d'%02d\"/km", minutes, seconds)
@@ -212,6 +219,9 @@ fun buildExerciseDetail(
         monthlyCaloriesKcal = summary.monthlyCaloriesKcal,
         selectedStatsRange = selectedStatsRange,
         rangeStats = buildExerciseRangeStats(records, selectedStatsRange),
+        trend = buildExerciseTrend(records, selectedStatsRange),
+        personalBest = buildExercisePersonalBest(records),
+        consistency = buildExerciseConsistency(records),
         records = records.sortedByDescending { it.startTime }.map {
             val type = parseExerciseType(it.type)
             val session = sessionsByExerciseRecord[it.id]
@@ -236,6 +246,91 @@ fun buildExerciseDetail(
                 trackPoints = trackPoints
             )
         }
+    )
+}
+
+fun buildExerciseTrend(
+    records: List<ExerciseRecordEntity>,
+    range: ExerciseStatsRange
+): ExerciseTrendUiState {
+    val now = Calendar.getInstance()
+    val buckets = buildTrendBuckets(records, range, now)
+    records.forEach { record ->
+        val bucketKey = trendBucketKey(record.startTime, range)
+        buckets[bucketKey]?.records?.add(record)
+    }
+
+    return ExerciseTrendUiState(
+        range = range,
+        points = buckets.values.map { bucket ->
+            val totalDistance = bucket.records.sumOf { it.distanceKm }
+            val totalDuration = bucket.records.sumOf { it.durationSeconds }
+            ExerciseTrendPointUiState(
+                label = bucket.label,
+                distanceKm = totalDistance,
+                durationSeconds = totalDuration,
+                averagePaceSecondsPerKm = averagePaceSeconds(totalDuration, totalDistance)
+            )
+        }
+    )
+}
+
+fun buildExercisePersonalBest(records: List<ExerciseRecordEntity>): ExercisePersonalBestUiState {
+    val validDistanceRecords = records.filter { it.distanceKm > 0.0 && it.durationSeconds > 0L }
+    val longestDistance = validDistanceRecords.maxByOrNull { it.distanceKm }
+    val fastestOneKm = validDistanceRecords
+        .filter { it.distanceKm >= 1.0 }
+        .minByOrNull { it.durationSeconds / it.distanceKm }
+    val fastestFiveKm = validDistanceRecords
+        .filter { it.distanceKm >= 5.0 }
+        .minByOrNull { it.durationSeconds / it.distanceKm }
+    val highestCalories = records.maxByOrNull { it.caloriesKcal }
+
+    return ExercisePersonalBestUiState(
+        longestDistance = longestDistance?.let {
+            ExercisePersonalBestItemUiState(
+                value = "${formatDistance(it.distanceKm)} km",
+                dateText = formatExerciseDateTime(it.startTime)
+            )
+        } ?: ExercisePersonalBestItemUiState(value = "0.00 km"),
+        fastestOneKm = fastestOneKm?.let {
+            ExercisePersonalBestItemUiState(
+                value = formatPace(it.durationSeconds, it.distanceKm),
+                dateText = formatExerciseDateTime(it.startTime),
+                subtitle = "基于单次平均配速"
+            )
+        } ?: ExercisePersonalBestItemUiState(value = "--", subtitle = "基于单次平均配速"),
+        fastestFiveKm = fastestFiveKm?.let {
+            ExercisePersonalBestItemUiState(
+                value = formatPace(it.durationSeconds, it.distanceKm),
+                dateText = formatExerciseDateTime(it.startTime),
+                subtitle = "基于单次平均配速"
+            )
+        } ?: ExercisePersonalBestItemUiState(value = "--", subtitle = "基于单次平均配速"),
+        highestCalories = highestCalories?.let {
+            ExercisePersonalBestItemUiState(
+                value = "${formatCalories(it.caloriesKcal)} kcal",
+                dateText = formatExerciseDateTime(it.startTime)
+            )
+        } ?: ExercisePersonalBestItemUiState(value = "0 kcal")
+    )
+}
+
+fun buildExerciseConsistency(records: List<ExerciseRecordEntity>): ExerciseConsistencyUiState {
+    val now = Calendar.getInstance()
+    val latestRecord = records.maxByOrNull { it.startTime }
+    val monthStart = startOfMonth(now).timeInMillis
+    val nowMillis = now.timeInMillis
+    val monthlyActiveDays = records
+        .filter { it.startTime in monthStart..nowMillis }
+        .map { dateKey(it.startTime) }
+        .toSet()
+        .size
+
+    return ExerciseConsistencyUiState(
+        streakDays = calculateExerciseStreakDays(records, now),
+        monthlyActiveDays = monthlyActiveDays,
+        latestCheckInDateText = latestRecord?.let { formatExerciseDateTime(it.startTime) } ?: "--"
     )
 }
 
@@ -289,6 +384,46 @@ fun buildExerciseRangeStats(
     )
 }
 
+fun buildExerciseStatsDetail(
+    records: List<ExerciseRecordEntity>,
+    period: ExerciseStatsPeriod
+): ExerciseStatsDetailUiState {
+    val now = Calendar.getInstance()
+    val nowMillis = now.timeInMillis
+    val startMillis = when (period) {
+        ExerciseStatsPeriod.WEEK -> startOfWeek(now).timeInMillis
+        ExerciseStatsPeriod.MONTH -> startOfMonth(now).timeInMillis
+        ExerciseStatsPeriod.YEAR -> startOfYear(now).timeInMillis
+    }
+    val periodRecords = records.filter {
+        it.startTime >= startMillis && it.startTime <= nowMillis
+    }
+    val totalDistance = periodRecords.sumOf { it.distanceKm }
+    val totalDurationSeconds = periodRecords.sumOf { it.durationSeconds }
+    val recordCount = periodRecords.size
+    val fastestRecord = periodRecords
+        .filter { it.distanceKm > 0.0 && it.durationSeconds > 0L }
+        .maxByOrNull { it.distanceKm / (it.durationSeconds / 3600.0) }
+    val fastestSpeedKmh = fastestRecord?.let {
+        it.distanceKm / (it.durationSeconds / 3600.0)
+    } ?: 0.0
+
+    return ExerciseStatsDetailUiState(
+        period = period,
+        title = period.statsTitle,
+        rangeText = buildStatsRangeText(startMillis, nowMillis),
+        totalDistanceKm = totalDistance,
+        totalDurationSeconds = totalDurationSeconds,
+        recordCount = recordCount,
+        checkInDays = periodRecords.map { dateKey(it.startTime) }.toSet().size,
+        averageDistanceKm = if (recordCount > 0) totalDistance / recordCount else 0.0,
+        averagePaceText = formatPace(totalDurationSeconds, totalDistance),
+        fastestSpeedKmh = fastestSpeedKmh,
+        longestDistanceKm = periodRecords.maxOfOrNull { it.distanceKm } ?: 0.0,
+        highestCaloriesKcal = periodRecords.maxOfOrNull { it.caloriesKcal } ?: 0
+    )
+}
+
 private fun progressOf(value: Double, goal: Double): Float {
     if (goal <= 0.0) return 0f
     return (value / goal).toFloat().coerceIn(0f, 1f)
@@ -318,6 +453,92 @@ private fun calculateExerciseStreakDays(
         cursor.add(Calendar.DAY_OF_YEAR, -1)
     }
     return streak
+}
+
+private data class ExerciseTrendBucket(
+    val key: String,
+    val label: String,
+    val records: MutableList<ExerciseRecordEntity> = mutableListOf()
+)
+
+private fun buildTrendBuckets(
+    records: List<ExerciseRecordEntity>,
+    range: ExerciseStatsRange,
+    now: Calendar
+): LinkedHashMap<String, ExerciseTrendBucket> {
+    val buckets = LinkedHashMap<String, ExerciseTrendBucket>()
+    when (range) {
+        ExerciseStatsRange.WEEK -> {
+            val cursor = startOfWeek(now)
+            repeat(7) {
+                val key = dateKey(cursor.timeInMillis)
+                buckets[key] = ExerciseTrendBucket(key = key, label = weekDayLabel(cursor))
+                cursor.add(Calendar.DAY_OF_YEAR, 1)
+            }
+        }
+        ExerciseStatsRange.MONTH -> {
+            val cursor = startOfMonth(now)
+            val maxDay = now.get(Calendar.DAY_OF_MONTH)
+            repeat(maxDay) {
+                val key = dateKey(cursor.timeInMillis)
+                buckets[key] = ExerciseTrendBucket(
+                    key = key,
+                    label = cursor.get(Calendar.DAY_OF_MONTH).toString()
+                )
+                cursor.add(Calendar.DAY_OF_YEAR, 1)
+            }
+        }
+        ExerciseStatsRange.YEAR -> {
+            val cursor = startOfYear(now)
+            repeat(12) {
+                val key = monthKey(cursor.timeInMillis)
+                buckets[key] = ExerciseTrendBucket(
+                    key = key,
+                    label = "${cursor.get(Calendar.MONTH) + 1}月"
+                )
+                cursor.add(Calendar.MONTH, 1)
+            }
+        }
+        ExerciseStatsRange.ALL -> {
+            records.sortedBy { it.startTime }.forEach { record ->
+                val calendar = Calendar.getInstance().apply { timeInMillis = record.startTime }
+                val key = monthKey(record.startTime)
+                buckets.getOrPut(key) {
+                    ExerciseTrendBucket(
+                        key = key,
+                        label = "${calendar.get(Calendar.YEAR)}-${String.format(Locale.US, "%02d", calendar.get(Calendar.MONTH) + 1)}"
+                    )
+                }
+            }
+        }
+    }
+    return buckets
+}
+
+private fun trendBucketKey(timeMillis: Long, range: ExerciseStatsRange): String {
+    return when (range) {
+        ExerciseStatsRange.WEEK,
+        ExerciseStatsRange.MONTH -> dateKey(timeMillis)
+        ExerciseStatsRange.YEAR,
+        ExerciseStatsRange.ALL -> monthKey(timeMillis)
+    }
+}
+
+private fun averagePaceSeconds(durationSeconds: Long, distanceKm: Double): Long? {
+    if (durationSeconds <= 0L || distanceKm <= 0.0) return null
+    return (durationSeconds / distanceKm).roundToInt().toLong()
+}
+
+private fun weekDayLabel(calendar: Calendar): String {
+    return when (calendar.get(Calendar.DAY_OF_WEEK)) {
+        Calendar.MONDAY -> "一"
+        Calendar.TUESDAY -> "二"
+        Calendar.WEDNESDAY -> "三"
+        Calendar.THURSDAY -> "四"
+        Calendar.FRIDAY -> "五"
+        Calendar.SATURDAY -> "六"
+        else -> "日"
+    }
 }
 
 private fun parseStartTime(date: String): Long? {
@@ -359,6 +580,22 @@ private fun startOfYear(calendar: Calendar): Calendar {
 
 private fun dateKey(timeMillis: Long): String {
     return SimpleDateFormat(DATE_PATTERN, Locale.US).format(timeMillis)
+}
+
+private fun monthKey(timeMillis: Long): String {
+    return SimpleDateFormat("yyyy-MM", Locale.US).format(timeMillis)
+}
+
+private val ExerciseStatsPeriod.statsTitle: String
+    get() = when (this) {
+        ExerciseStatsPeriod.WEEK -> "周统计"
+        ExerciseStatsPeriod.MONTH -> "月统计"
+        ExerciseStatsPeriod.YEAR -> "年统计"
+    }
+
+private fun buildStatsRangeText(startMillis: Long, endMillis: Long): String {
+    val formatter = SimpleDateFormat(DATE_PATTERN, Locale.US)
+    return "${formatter.format(Date(startMillis))} 至 ${formatter.format(Date(endMillis))}"
 }
 
 private fun RunTrackPointEntity.toRunTrackPointUiModel(): RunTrackPointUiModel {

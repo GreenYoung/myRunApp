@@ -16,7 +16,7 @@ import com.example.myrunapp.feature.weight.data.WeightRecordEntity
 
 @Database(
     entities = [WeightRecordEntity::class, ExerciseRecordEntity::class, RunSessionEntity::class, RunTrackPointEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -35,7 +35,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "my_run_app.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .build()
                     .also { instance = it }
             }
@@ -94,6 +94,12 @@ abstract class AppDatabase : RoomDatabase() {
         private val MIGRATION_3_4 = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `run_track_points` ADD COLUMN `coordinateSystem` TEXT NOT NULL DEFAULT 'WGS84'")
+            }
+        }
+
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `weight_records` ADD COLUMN `note` TEXT")
             }
         }
     }
