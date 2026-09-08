@@ -241,6 +241,7 @@ private fun WeightTrendChartCard(
                         onPointSelected = onPointSelected,
                         onDoubleTap = onChartDoubleTap,
                         showBottomDateLabels = !isFullscreen,
+                        isFullscreen = isFullscreen,
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
@@ -250,6 +251,7 @@ private fun WeightTrendChartCard(
                             point = uiState.records.getOrNull(selectedIndex.coerceIn(0, uiState.records.lastIndex)),
                             isLandscape = isLandscape
                         )
+                        WeightTrendGoalSummary(uiState = uiState, isLandscape = isLandscape)
                     }
                 }
             }
@@ -264,6 +266,30 @@ private fun WeightTrendEmptyState(modifier: Modifier = Modifier) {
             Text("暂无体重数据", color = Color.White, fontWeight = FontWeight.Bold)
             Text("记录体重后即可查看变化趋势", color = AppSecondaryText, style = MaterialTheme.typography.bodySmall)
         }
+    }
+}
+
+@Composable
+private fun WeightTrendGoalSummary(
+    uiState: WeightTrendUiState,
+    isLandscape: Boolean,
+    modifier: Modifier = Modifier
+) {
+    if (isLandscape) return
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .background(Color(0x660C1218), RoundedCornerShape(14.dp))
+            .padding(horizontal = 14.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        TrendInfoItem(title = "当前", value = uiState.latestWeight?.let { "${formatWeight(it)} kg" } ?: "--", modifier = Modifier.weight(1f))
+        TrendInfoItem(title = "目标", value = uiState.targetWeight?.let { "${formatWeight(it)} kg" } ?: "未设置", modifier = Modifier.weight(1f))
+        TrendInfoItem(title = "距目标", value = uiState.remainingWeight?.let { "${formatWeight(it)} kg" } ?: "--", color = TrendGreen, modifier = Modifier.weight(1f))
+        TrendInfoItem(title = uiState.changeSpeed.label, value = uiState.changeSpeed.description, color = uiState.changeSpeed.weeklyChangeKg.toTrendChangeColor(), modifier = Modifier.weight(1f))
     }
 }
 
@@ -320,11 +346,12 @@ private fun WeightTrendChart(
     onPointSelected: (Int) -> Unit,
     onDoubleTap: () -> Unit,
     showBottomDateLabels: Boolean,
+    isFullscreen: Boolean,
     modifier: Modifier = Modifier
 ) {
     val weightPoints = remember(records) { records.map { WeightPoint(it.date, it.weightKg) } }
     val axisRecords = remember(weightPoints, targetWeight) {
-        if (targetWeight == null) {
+        if (targetWeight == null || weightPoints.isEmpty()) {
             weightPoints
         } else {
             weightPoints + WeightPoint(records.last().date, targetWeight)
@@ -423,6 +450,26 @@ private fun WeightTrendChart(
                     paint = labelPaint
                 )
             }
+        }
+
+        if (!isFullscreen && selectedIndex in offsets.indices) {
+            val selectedOffset = offsets[selectedIndex]
+            drawLine(
+                color = TrendGreen.copy(alpha = 0.30f),
+                start = Offset(selectedOffset.x, metrics.top),
+                end = Offset(selectedOffset.x, metrics.bottom),
+                strokeWidth = 1.dp.toPx()
+            )
+            drawCircle(
+                color = TrendCardDark,
+                radius = 5.dp.toPx(),
+                center = selectedOffset
+            )
+            drawCircle(
+                color = TrendGreen,
+                radius = 3.5.dp.toPx(),
+                center = selectedOffset
+            )
         }
 
         if (showBottomDateLabels) {

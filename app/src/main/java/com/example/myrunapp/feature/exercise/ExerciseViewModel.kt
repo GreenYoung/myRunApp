@@ -180,6 +180,12 @@ class ExerciseViewModel(
         }
     }
 
+    fun observeStatsDetail(period: ExerciseStatsPeriod): Flow<ExerciseStatsDetailUiState> {
+        return exerciseDao.observeAllExercises().map { records ->
+            buildExerciseStatsDetail(records, period)
+        }
+    }
+
     fun saveExercise() {
         val current = uiState.value
         val selectedMinutes = current.selectedDurationMinutes

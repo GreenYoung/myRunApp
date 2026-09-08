@@ -51,6 +51,9 @@ class RunTrackingService : Service() {
     private var timerJob: Job? = null
     private var isSaving = false
     private var startTime: Long = 0L
+    private var pausedAtMs: Long = 0L
+    private var totalPausedMs: Long = 0L
+    private var skipNextAcceptedPoint = false
     private var totalDistanceMeters = 0.0
     private var trackingWeightKg = 70.0
 
@@ -74,6 +77,8 @@ class RunTrackingService : Service() {
         )
         when (intent?.action) {
             ACTION_START -> startTracking()
+            ACTION_PAUSE -> pauseTracking()
+            ACTION_RESUME -> resumeTracking()
             ACTION_FINISH -> finishTracking()
             ACTION_DISCARD -> discardTracking()
         }
@@ -130,12 +135,16 @@ class RunTrackingService : Service() {
         startRunForeground()
 
         startTime = System.currentTimeMillis()
+        pausedAtMs = 0L
+        totalPausedMs = 0L
+        skipNextAcceptedPoint = false
         totalDistanceMeters = 0.0
         trackingWeightKg = 70.0
         gpsTrackFilter.reset()
         RunTrackingStateStore.update {
             RunTrackingUiState(
                 isTracking = true,
+                isPaused = false,
                 hasLocationPermission = true,
                 hasNotificationPermission = it.hasNotificationPermission,
                 isServiceRunning = true,
@@ -160,6 +169,52 @@ class RunTrackingService : Service() {
             }
             stopForegroundAndSelf()
         }
+    }
+
+    private fun pauseTracking() {
+        val current = RunTrackingStateStore.state.value
+        AppLogger.i(
+            LogTags.RUN,
+            "pauseTracking requested isTracking=${current.isTracking} isPaused=${current.isPaused} duration=${current.durationSeconds}s distance=${current.distanceKm} points=${current.trackPoints.size}"
+        )
+        if (!current.isTracking || current.isPaused || isSaving) return
+
+        pausedAtMs = System.currentTimeMillis()
+        RunTrackingStateStore.update {
+            it.copy(
+                isPaused = true,
+                gpsStatusText = "跑步已暂停",
+                errorMessage = null
+            )
+        }
+        updateNotification()
+        AppLogger.i(LogTags.RUN, "pauseTracking applied pausedAtMs=$pausedAtMs")
+    }
+
+    private fun resumeTracking() {
+        val current = RunTrackingStateStore.state.value
+        AppLogger.i(
+            LogTags.RUN,
+            "resumeTracking requested isTracking=${current.isTracking} isPaused=${current.isPaused} duration=${current.durationSeconds}s distance=${current.distanceKm} points=${current.trackPoints.size}"
+        )
+        if (!current.isTracking || !current.isPaused || isSaving) return
+
+        val now = System.currentTimeMillis()
+        if (pausedAtMs > 0L) {
+            totalPausedMs += (now - pausedAtMs).coerceAtLeast(0L)
+        }
+        pausedAtMs = 0L
+        skipNextAcceptedPoint = true
+        gpsTrackFilter.reset()
+        RunTrackingStateStore.update {
+            it.copy(
+                isPaused = false,
+                gpsStatusText = "重新定位中",
+                errorMessage = null
+            )
+        }
+        updateNotification()
+        AppLogger.i(LogTags.RUN, "resumeTracking applied totalPausedMs=$totalPausedMs skipNextAcceptedPoint=true")
     }
 
     private fun finishTracking() {
@@ -193,6 +248,9 @@ class RunTrackingService : Service() {
         stopTimer()
         isSaving = false
         startTime = 0L
+        pausedAtMs = 0L
+        totalPausedMs = 0L
+        skipNextAcceptedPoint = false
         totalDistanceMeters = 0.0
         trackingWeightKg = 70.0
         gpsTrackFilter.reset()
@@ -242,8 +300,26 @@ class RunTrackingService : Service() {
 
     private fun handleLocation(location: Location) {
         AppLogger.d(LogTags.GPS, "raw location ${location.toDebugText()}")
+        if (RunTrackingStateStore.state.value.isPaused) {
+            AppLogger.d(LogTags.TRACK, "location ignored because run is paused ${location.toDebugText()}")
+            return
+        }
         when (val result = gpsTrackFilter.filter(location)) {
             is LocationFilterResult.Accepted -> {
+                if (skipNextAcceptedPoint) {
+                    skipNextAcceptedPoint = false
+                    RunTrackingStateStore.update {
+                        it.copy(
+                            gpsStatusText = result.point.accuracyMeters?.let { accuracy -> "GPS 精度 ${accuracy.toInt()}m" } ?: "GPS 信号良好",
+                            errorMessage = null
+                        )
+                    }
+                    AppLogger.i(
+                        LogTags.TRACK,
+                        "resume baseline accepted and skipped lat=${result.point.latitude} lon=${result.point.longitude} accuracy=${result.point.accuracyMeters}"
+                    )
+                    return
+                }
                 totalDistanceMeters += result.distanceFromPreviousMeters
                 RunTrackingStateStore.update { current ->
                     val points = current.trackPoints + result.point
@@ -283,8 +359,11 @@ class RunTrackingService : Service() {
         timerJob = serviceScope.launch {
             while (true) {
                 delay(1_000L)
-                val durationSeconds = durationSecondsSince(startTime)
                 RunTrackingStateStore.update { current ->
+                    if (current.isPaused) {
+                        return@update current
+                    }
+                    val durationSeconds = activeDurationSeconds()
                     current.copy(
                         durationSeconds = durationSeconds,
                         averagePaceText = formatPace(durationSeconds, current.distanceKm),
@@ -300,6 +379,11 @@ class RunTrackingService : Service() {
     private fun stopTimer() {
         timerJob?.cancel()
         timerJob = null
+    }
+
+    private fun activeDurationSeconds(now: Long = System.currentTimeMillis()): Long {
+        val effectiveNow = if (pausedAtMs > 0L) pausedAtMs else now
+        return ((effectiveNow - startTime - totalPausedMs).coerceAtLeast(0L) / 1000L)
     }
 
     private fun loadTrackingWeight() {
@@ -413,9 +497,10 @@ class RunTrackingService : Service() {
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        val title = if (state.isPaused) "MyRun 跑步已暂停" else "MyRun 正在记录跑步"
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("MyRun 正在记录跑步")
+            .setContentTitle(title)
             .setContentText("${formatDistance(state.distanceKm)} km · ${formatRunClock(state.durationSeconds)} · ${state.averagePaceText}")
             .setContentIntent(contentIntent)
             .setOngoing(true)
@@ -481,6 +566,8 @@ class RunTrackingService : Service() {
         private const val CHANNEL_ID = "run_tracking"
         private const val NOTIFICATION_ID = 3001
         private const val ACTION_START = "com.example.myrunapp.feature.run.START"
+        private const val ACTION_PAUSE = "com.example.myrunapp.feature.run.PAUSE"
+        private const val ACTION_RESUME = "com.example.myrunapp.feature.run.RESUME"
         private const val ACTION_FINISH = "com.example.myrunapp.feature.run.FINISH"
         private const val ACTION_DISCARD = "com.example.myrunapp.feature.run.DISCARD"
 
@@ -490,6 +577,14 @@ class RunTrackingService : Service() {
 
         fun finishIntent(context: Context): Intent {
             return Intent(context, RunTrackingService::class.java).setAction(ACTION_FINISH)
+        }
+
+        fun pauseIntent(context: Context): Intent {
+            return Intent(context, RunTrackingService::class.java).setAction(ACTION_PAUSE)
+        }
+
+        fun resumeIntent(context: Context): Intent {
+            return Intent(context, RunTrackingService::class.java).setAction(ACTION_RESUME)
         }
 
         fun discardIntent(context: Context): Intent {

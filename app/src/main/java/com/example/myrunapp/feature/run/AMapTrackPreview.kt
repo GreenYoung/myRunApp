@@ -28,6 +28,7 @@ private val TrackPreviewMapFallback = Color(0x990C1218)
 @Composable
 fun AMapTrackPreview(
     points: List<RunTrackPointUiModel>,
+    mapDisplayType: RunMapDisplayType = RunMapDisplayType.Normal,
     modifier: Modifier = Modifier
 ) {
     val validPoints = remember(points) { points.filterValidMapPoints() }
@@ -82,8 +83,11 @@ fun AMapTrackPreview(
         factory = { mapView },
         update = { view ->
             view.getMapAsyn { map ->
-                map.configureSportTrackUi()
-                AppLogger.d(LogTags.MAP, "render track preview points=${validPoints.size}")
+                map.configureSportTrackUi(mapDisplayType)
+                AppLogger.d(
+                    LogTags.MAP,
+                    "render track preview points=${validPoints.size} mapType=${mapDisplayType.label}"
+                )
                 map.drawSportTrack(
                     context = context,
                     points = validPoints,

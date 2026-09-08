@@ -5,7 +5,6 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Rect
-import android.graphics.RectF
 import android.graphics.Typeface
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -19,13 +18,13 @@ import com.amap.api.maps.model.MarkerOptions
 import com.amap.api.maps.model.PolylineOptions
 import kotlin.math.roundToInt
 
-private val TrackGradientStart = Color(0xFF22D3EE)
+private val TrackHalo = Color(0xB3FFFFFF)
+private val TrackGradientStart = Color(0xFF06B6D4)
 private val TrackGradientMiddle = Color(0xFF22C55E)
-private val TrackGradientEnd = Color(0xFFFACC15)
-private val TrackShadow = Color(0xAA06130E)
-private val MarkerDark = Color(0xFF111820)
+private val TrackGradientEnd = Color(0xFFA3E635)
+private val MarkerHalo = Color(0x73FFFFFF)
 private val MarkerGreen = Color(0xFF22C55E)
-private val MarkerTextDark = Color(0xFF06130E)
+private val MarkerRed = Color(0xFFEF4444)
 private val MarkerWhite = Color(0xFFFFFFFF)
 private const val RoadZoom = 18f
 private const val TrackBoundsPadding = 44
@@ -37,8 +36,8 @@ internal data class RunMapLocation(
     val isGpsLocation: Boolean
 )
 
-internal fun AMap.configureSportTrackUi() {
-    setMapType(AMap.MAP_TYPE_NORMAL)
+internal fun AMap.configureSportTrackUi(mapDisplayType: RunMapDisplayType = RunMapDisplayType.Normal) {
+    setMapType(mapDisplayType.amapType)
     setTrafficEnabled(false)
     showBuildings(false)
     uiSettings.setScrollGesturesEnabled(true)
@@ -67,9 +66,9 @@ internal fun AMap.drawSportTrack(
         MarkerOptions()
             .position(latLngs.first())
             .title("GO")
-            .anchor(0.5f, 0.86f)
+            .anchor(0.5f, 0.5f)
             .zIndex(20f)
-            .icon(BitmapDescriptorFactory.fromBitmap(createPillMarkerBitmap(context, "GO", MarkerGreen, MarkerTextDark)))
+            .icon(BitmapDescriptorFactory.fromBitmap(createRouteLabelMarkerBitmap(context, "GO", MarkerGreen)))
     )
 
     if (latLngs.size >= 2) {
@@ -82,9 +81,9 @@ internal fun AMap.drawSportTrack(
             MarkerOptions()
                 .position(latLngs.last())
                 .title(endLabel)
-                .anchor(0.5f, 0.86f)
+                .anchor(0.5f, 0.5f)
                 .zIndex(21f)
-                .icon(BitmapDescriptorFactory.fromBitmap(createPillMarkerBitmap(context, endLabel, MarkerDark, MarkerGreen, true)))
+                .icon(BitmapDescriptorFactory.fromBitmap(createRouteLabelMarkerBitmap(context, endLabel, MarkerRed)))
         )
     }
 
@@ -163,14 +162,14 @@ private fun AMap.drawGradientPolyline(latLngs: List<LatLng>) {
     addPolyline(
         PolylineOptions()
             .addAll(latLngs)
-            .width(14f)
-            .color(TrackShadow.toArgb())
+            .width(18f)
+            .color(TrackHalo.toArgb())
             .zIndex(8f)
     )
     addPolyline(
         PolylineOptions()
             .addAll(latLngs)
-            .width(9.5f)
+            .width(12f)
             .colorValues(colorValues)
             .zIndex(10f)
     )
@@ -215,61 +214,53 @@ private fun interpolatePoint(
     )
 }
 
-private fun createPillMarkerBitmap(
+private fun createRouteLabelMarkerBitmap(
     context: Context,
     text: String,
-    background: Color,
-    textColor: Color,
-    stroke: Boolean = false
+    background: Color
 ): Bitmap {
     val density = context.resources.displayMetrics.density
-    val width = (50 * density).roundToInt()
-    val height = (30 * density).roundToInt()
-    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-    val canvas = Canvas(bitmap)
-    val rect = RectF(1.5f * density, 1.5f * density, width - 1.5f * density, height - 1.5f * density)
-    val radius = 15f * density
-
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = background.toArgb()
-        style = Paint.Style.FILL
-    }
-    canvas.drawRoundRect(rect, radius, radius, paint)
-
-    if (stroke) {
-        paint.apply {
-            color = MarkerGreen.toArgb()
-            style = Paint.Style.STROKE
-            strokeWidth = 1.6f * density
-        }
-        canvas.drawRoundRect(rect, radius, radius, paint)
-    }
-
-    drawCenteredText(canvas, text, textColor, 12f * density, Typeface.BOLD)
-    return bitmap
-}
-
-private fun createCircleMarkerBitmap(context: Context, text: String): Bitmap {
-    val density = context.resources.displayMetrics.density
-    val size = (26 * density).roundToInt()
+    val size = (32 * density).roundToInt()
     val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     val center = size / 2f
 
     val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = MarkerHalo.toArgb()
+        style = Paint.Style.FILL
+    }
+    canvas.drawCircle(center, center, center - 0.5f * density, paint)
+
+    paint.apply {
+        color = background.toArgb()
+        style = Paint.Style.FILL
+    }
+    canvas.drawCircle(center, center, center - 3f * density, paint)
+
+    drawCenteredText(canvas, text, MarkerWhite, 9.5f * density, Typeface.BOLD)
+    return bitmap
+}
+
+private fun createCircleMarkerBitmap(context: Context, text: String): Bitmap {
+    val density = context.resources.displayMetrics.density
+    val size = (22 * density).roundToInt()
+    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val center = size / 2f
+
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = MarkerHalo.toArgb()
+        style = Paint.Style.FILL
+    }
+    canvas.drawCircle(center, center, center - 0.5f * density, paint)
+
+    paint.apply {
         color = MarkerGreen.toArgb()
         style = Paint.Style.FILL
     }
-    canvas.drawCircle(center, center, center - 1.5f * density, paint)
+    canvas.drawCircle(center, center, center - 3f * density, paint)
 
-    paint.apply {
-        color = MarkerDark.toArgb()
-        style = Paint.Style.STROKE
-        strokeWidth = 1.2f * density
-    }
-    canvas.drawCircle(center, center, center - 1.5f * density, paint)
-
-    drawCenteredText(canvas, text, MarkerWhite, 11f * density, Typeface.BOLD)
+    drawCenteredText(canvas, text, MarkerWhite, 8.5f * density, Typeface.BOLD)
     return bitmap
 }
 

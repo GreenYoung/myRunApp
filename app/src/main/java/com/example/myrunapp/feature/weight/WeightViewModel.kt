@@ -3,6 +3,7 @@ package com.example.myrunapp.feature.weight
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.myrunapp.feature.exercise.data.ExerciseDao
 import com.example.myrunapp.feature.weight.data.WeightDao
 import com.example.myrunapp.feature.weight.data.WeightRecordEntity
 import com.example.myrunapp.feature.weight.data.TargetWeightRepository
@@ -15,6 +16,7 @@ import kotlinx.coroutines.launch
 
 class WeightViewModel(
     private val weightDao: WeightDao,
+    private val exerciseDao: ExerciseDao,
     private val targetWeightRepository: TargetWeightRepository
 ) : ViewModel() {
     private val inputState = MutableStateFlow(
@@ -23,9 +25,11 @@ class WeightViewModel(
 
     val uiState = combine(
         weightDao.observeAllWeights(),
+        exerciseDao.observeAllExercises(),
         targetWeightRepository.targetWeightKg,
+        targetWeightRepository.heightCm,
         inputState
-    ) { records, targetWeight, input ->
+    ) { records, exercises, targetWeight, heightCm, input ->
         val points = records.map { WeightPoint(it.date, it.weightKg) }
         val latest = records.maxByOrNull { it.date }
         val first = records.minByOrNull { it.date }
@@ -60,7 +64,8 @@ class WeightViewModel(
                 WeightRecordItem(
                     date = record.date,
                     weightKg = record.weightKg,
-                    previousChange = previousRecord?.let { record.weightKg - it.weightKg }
+                    previousChange = previousRecord?.let { record.weightKg - it.weightKg },
+                    note = record.note
                 )
             }
         val trendRecords = records
@@ -72,7 +77,8 @@ class WeightViewModel(
                 WeightTrendPointUiState(
                     date = record.date,
                     weightKg = record.weightKg,
-                    previousChange = previousRecord?.let { record.weightKg - it.weightKg }
+                    previousChange = previousRecord?.let { record.weightKg - it.weightKg },
+                    note = record.note
                 )
             }
         val filteredTrendRecords = filterWeightTrendPointsByRange(
@@ -104,6 +110,9 @@ class WeightViewModel(
                 remainingWeight = calculateRemainingWeight(latest?.weightKg, targetWeight),
                 targetProgress = calculateTargetProgress(first?.weightKg, latest?.weightKg, targetWeight),
                 latestDate = latest?.date,
+                bmi = calculateBmiUiState(latest?.weightKg, heightCm),
+                changeSpeed = buildWeightChangeSpeed(points, latest?.date, input.weightDetail.selectedRange),
+                exerciseCorrelation = buildWeightExerciseCorrelation(points, exercises, latest?.date),
                 selectedRange = input.weightDetail.selectedRange,
                 chartRecords = filterWeightPointsByRange(points, latest?.date, input.weightDetail.selectedRange),
                 recentRecords = recentRecords
@@ -111,7 +120,10 @@ class WeightViewModel(
             weightTrend = WeightTrendUiState(
                 selectedRange = input.weightTrend.selectedRange,
                 records = filteredTrendRecords,
-                targetWeight = targetWeight
+                targetWeight = targetWeight,
+                latestWeight = latest?.weightKg,
+                remainingWeight = calculateRemainingWeight(latest?.weightKg, targetWeight),
+                changeSpeed = buildWeightChangeSpeed(points, latest?.date, input.weightTrend.selectedRange)
             ),
             records = points
         )
@@ -128,6 +140,7 @@ class WeightViewModel(
                 editingWeightDate = null,
                 inputDate = todayIsoDate(),
                 inputWeight = "",
+                inputNote = "",
                 inputError = null
             )
         }
@@ -140,6 +153,7 @@ class WeightViewModel(
                 editingWeightDate = record.date,
                 inputDate = record.date,
                 inputWeight = formatWeight(record.weightKg),
+                inputNote = record.note.orEmpty(),
                 inputError = null
             )
         }
@@ -163,6 +177,10 @@ class WeightViewModel(
         inputState.update { it.copy(inputWeight = value, inputError = null) }
     }
 
+    fun onInputNoteChange(value: String) {
+        inputState.update { it.copy(inputNote = value.take(100), inputError = null) }
+    }
+
     fun onRangeChange(range: WeightRange) {
         inputState.update {
             it.copy(
@@ -174,10 +192,12 @@ class WeightViewModel(
 
     fun showTargetDialog() {
         val targetWeight = uiState.value.weightDetail.targetWeight
+        val heightCm = uiState.value.weightDetail.bmi.heightCm
         inputState.update {
             it.copy(
                 isTargetDialogVisible = true,
                 inputTargetWeight = targetWeight?.let(::formatWeight) ?: "",
+                inputHeightCm = heightCm?.let(::formatHeightCm) ?: "",
                 targetInputError = null
             )
         }
@@ -196,9 +216,13 @@ class WeightViewModel(
         inputState.update { it.copy(inputTargetWeight = value, targetInputError = null) }
     }
 
+    fun onHeightCmChange(value: String) {
+        inputState.update { it.copy(inputHeightCm = value, targetInputError = null) }
+    }
+
     fun saveTargetWeight() {
         val current = uiState.value
-        val validation = validateTargetWeightInput(current.inputTargetWeight)
+        val validation = validateWeightSettingsInput(current.inputTargetWeight, current.inputHeightCm)
 
         if (!validation.isValid) {
             inputState.update { it.copy(targetInputError = validation.error) }
@@ -206,11 +230,15 @@ class WeightViewModel(
         }
 
         viewModelScope.launch {
-            targetWeightRepository.saveTargetWeight(validation.weightKg ?: return@launch)
+            targetWeightRepository.saveWeightSettings(
+                targetWeightKg = validation.targetWeightKg ?: return@launch,
+                heightCm = validation.heightCm
+            )
             inputState.update {
                 it.copy(
                     isTargetDialogVisible = false,
                     inputTargetWeight = "",
+                    inputHeightCm = "",
                     targetInputError = null
                 )
             }
@@ -237,6 +265,7 @@ class WeightViewModel(
                 WeightRecordEntity(
                     date = current.inputDate,
                     weightKg = validation.weightKg ?: return@launch,
+                    note = current.inputNote.trim().takeIf { it.isNotEmpty() },
                     createdAt = existing?.createdAt ?: now,
                     updatedAt = now
                 )
@@ -247,6 +276,7 @@ class WeightViewModel(
                     editingWeightDate = null,
                     inputWeight = "",
                     inputDate = todayIsoDate(),
+                    inputNote = "",
                     inputError = null
                 )
             }
@@ -262,12 +292,13 @@ class WeightViewModel(
 
 class WeightViewModelFactory(
     private val weightDao: WeightDao,
+    private val exerciseDao: ExerciseDao,
     private val targetWeightRepository: TargetWeightRepository
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(WeightViewModel::class.java)) {
-            return WeightViewModel(weightDao, targetWeightRepository) as T
+            return WeightViewModel(weightDao, exerciseDao, targetWeightRepository) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
     }

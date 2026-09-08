@@ -8,13 +8,15 @@ data class WeightPoint(
 data class WeightRecordItem(
     val date: String,
     val weightKg: Double,
-    val previousChange: Double?
+    val previousChange: Double?,
+    val note: String? = null
 )
 
 data class WeightTrendPointUiState(
     val date: String,
     val weightKg: Double,
-    val previousChange: Double?
+    val previousChange: Double?,
+    val note: String? = null
 )
 
 data class WeightAxisRange(
@@ -27,6 +29,14 @@ data class WeightValidationResult(
     val error: String? = null
 ) {
     val isValid: Boolean = error == null && weightKg != null
+}
+
+data class WeightSettingsValidationResult(
+    val targetWeightKg: Double? = null,
+    val heightCm: Double? = null,
+    val error: String? = null
+) {
+    val isValid: Boolean = error == null && targetWeightKg != null
 }
 
 data class WeightCardUiState(
@@ -55,6 +65,9 @@ data class WeightDetailUiState(
     val remainingWeight: Double? = null,
     val targetProgress: Float? = null,
     val latestDate: String? = null,
+    val bmi: WeightBmiUiState = WeightBmiUiState(),
+    val changeSpeed: WeightChangeSpeedUiState = WeightChangeSpeedUiState(),
+    val exerciseCorrelation: WeightExerciseCorrelationUiState = WeightExerciseCorrelationUiState(),
     val selectedRange: WeightRange = WeightRange.DAYS_30,
     val chartRecords: List<WeightPoint> = emptyList(),
     val recentRecords: List<WeightRecordItem> = emptyList()
@@ -63,7 +76,32 @@ data class WeightDetailUiState(
 data class WeightTrendUiState(
     val selectedRange: WeightRange = WeightRange.DAYS_7,
     val records: List<WeightTrendPointUiState> = emptyList(),
-    val targetWeight: Double? = null
+    val targetWeight: Double? = null,
+    val latestWeight: Double? = null,
+    val remainingWeight: Double? = null,
+    val changeSpeed: WeightChangeSpeedUiState = WeightChangeSpeedUiState()
+)
+
+data class WeightBmiUiState(
+    val heightCm: Double? = null,
+    val bmi: Double? = null,
+    val category: String = "设置身高后查看 BMI"
+)
+
+data class WeightChangeSpeedUiState(
+    val range: WeightRange = WeightRange.DAYS_7,
+    val weeklyChangeKg: Double? = null,
+    val label: String = "近7天",
+    val description: String = "数据不足"
+)
+
+data class WeightExerciseCorrelationUiState(
+    val sevenDayDistanceKm: Double = 0.0,
+    val sevenDayCaloriesKcal: Int = 0,
+    val sevenDayWeightChangeKg: Double? = null,
+    val thirtyDayDistanceKm: Double = 0.0,
+    val thirtyDayWeightChangeKg: Double? = null,
+    val insight: String = "体重数据不足"
 )
 
 data class WeightUiState(
@@ -78,8 +116,10 @@ data class WeightUiState(
     val editingWeightDate: String? = null,
     val inputDate: String = "",
     val inputWeight: String = "",
+    val inputNote: String = "",
     val inputError: String? = null,
     val isTargetDialogVisible: Boolean = false,
     val inputTargetWeight: String = "",
+    val inputHeightCm: String = "",
     val targetInputError: String? = null
 )

@@ -4,17 +4,25 @@ import android.Manifest
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,31 +34,34 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.myrunapp.core.log.AppLogger
 import com.example.myrunapp.core.log.LogTags
-import com.example.myrunapp.feature.exercise.formatCalories
-import com.example.myrunapp.feature.exercise.formatDistance
-import com.example.myrunapp.feature.exercise.formatDuration
-import com.example.myrunapp.ui.components.AppDangerButton
-import com.example.myrunapp.ui.components.AppDialogButtonRow
 import com.example.myrunapp.ui.components.AppBackButton
 import com.example.myrunapp.ui.components.AppPrimaryButton
 import com.example.myrunapp.ui.components.PageHorizontalPadding
 import com.example.myrunapp.ui.components.PageTopSpacing
 import com.example.myrunapp.ui.theme.AppSecondaryText
-import com.example.myrunapp.ui.theme.AppSurface
 import com.example.myrunapp.ui.theme.MyRunAppTheme
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 private val RunGreen = Color(0xFF22C55E)
+private val RunHudGreen = Color(0xFF0BDA51)
+private val RunHudBackground = Color(0xF5101820)
+private val RunHudUnit = Color(0xFFB6BDC5)
+private val RunHudLabel = Color(0xFF7F8893)
 private val RunBottomPadding = 24.dp
 private val RunBottomItemSpacing = 12.dp
-private val RunActionButtonHeight = 52.dp
+private val RunActionButtonHeight = 58.dp
 
 @Composable
 fun RunTrackingRoute(
@@ -80,6 +91,8 @@ fun RunTrackingRoute(
             permissionLauncher.launch(runTrackingPermissions())
         },
         onStart = viewModel::startTracking,
+        onPause = viewModel::pauseTracking,
+        onResume = viewModel::resumeTracking,
         onFinish = { viewModel.finishTracking(onSaved) },
         onDiscard = viewModel::stopWithoutSaving,
         modifier = modifier
@@ -92,11 +105,13 @@ fun RunTrackingScreen(
     onBack: () -> Unit,
     onRequestPermission: () -> Unit,
     onStart: () -> Unit,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
     onFinish: () -> Unit,
     onDiscard: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var showDiscardDialog by remember { mutableStateOf(false) }
+    var mapDisplayType by remember { mutableStateOf(RunMapDisplayType.Normal) }
     val hasRunInfo = uiState.isTracking || uiState.distanceKm > 0.0 || uiState.durationSeconds > 0L
 
     LaunchedEffect(uiState.isTracking, uiState.trackPoints.size, uiState.distanceKm) {
@@ -115,17 +130,12 @@ fun RunTrackingScreen(
             points = uiState.trackPoints,
             isTracking = uiState.isTracking,
             hasLocationPermission = uiState.hasLocationPermission,
+            mapDisplayType = mapDisplayType,
             modifier = Modifier.fillMaxSize()
         )
 
         AppBackButton(
-            onClick = {
-                if (uiState.isTracking) {
-                    showDiscardDialog = true
-                } else {
-                    onBack()
-                }
-            },
+            onClick = onBack,
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
@@ -138,6 +148,15 @@ fun RunTrackingScreen(
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()
                 .padding(top = PageTopSpacing + 7.dp)
+        )
+
+        RunMapTypeToggle(
+            mapDisplayType = mapDisplayType,
+            onClick = { mapDisplayType = mapDisplayType.next() },
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(end = PageHorizontalPadding, top = PageTopSpacing + 4.dp)
         )
 
         uiState.errorMessage?.let {
@@ -162,43 +181,161 @@ fun RunTrackingScreen(
             verticalArrangement = Arrangement.spacedBy(RunBottomItemSpacing)
         ) {
             if (hasRunInfo) {
-                RunInfoOverlayCard(
-                    title = "户外跑步",
-                    dateText = "实时记录",
-                    firstRow = RunInfoMetricUiModel("${formatDistance(uiState.distanceKm)} km", "距离") to
-                        RunInfoMetricUiModel(formatDuration(uiState.durationSeconds), "时长"),
-                    secondRow = RunInfoMetricUiModel(uiState.averagePaceText, "平均配速") to
-                        RunInfoMetricUiModel("${formatCalories(uiState.caloriesKcal)} kcal", "消耗"),
-                    modifier = Modifier.fillMaxWidth(),
-                    metricValueColor = Color.White
-                )
+                RunningStatsPanel(uiState = uiState, modifier = Modifier.fillMaxWidth())
             }
             RunTrackingOverlayCard(
                 uiState = uiState,
                 onRequestPermission = onRequestPermission,
                 onStart = onStart,
+                onPause = onPause,
+                onResume = onResume,
                 onFinish = onFinish
             )
         }
     }
+}
 
-    if (showDiscardDialog) {
-        AlertDialog(
-            onDismissRequest = { showDiscardDialog = false },
-            containerColor = AppSurface,
-            title = { Text("放弃本次跑步？", color = Color.White, fontWeight = FontWeight.Bold) },
-            text = { Text("返回后将停止 GPS 记录，本次数据不会保存。", color = AppSecondaryText) },
-            confirmButton = {
-                AppDialogButtonRow(
-                    onCancel = { showDiscardDialog = false },
-                    onConfirm = {
-                        showDiscardDialog = false
-                        onDiscard()
-                        onBack()
-                    },
-                    confirmText = "放弃"
+@Composable
+private fun RunningStatsPanel(
+    uiState: RunTrackingUiState,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(26.dp))
+            .background(RunHudBackground)
+            .padding(horizontal = 22.dp, vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        RunningPanelHeader(isPaused = uiState.isPaused)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            RunningMetricItem(
+                value = String.format(java.util.Locale.US, "%.2f", uiState.distanceKm),
+                unit = "km",
+                label = "距离",
+                valueFontSize = 35,
+                unitFontSize = 17,
+                modifier = Modifier.weight(1f)
+            )
+            RunningMetricItem(
+                value = formatRunClock(uiState.durationSeconds),
+                unit = "",
+                label = "时长",
+                valueFontSize = 32,
+                unitFontSize = 0,
+                useTabularNumbers = true,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            val paceValue = formatHudPaceValue(uiState.averagePaceText)
+            RunningMetricItem(
+                value = paceValue.first,
+                unit = paceValue.second,
+                label = "平均配速",
+                valueFontSize = 31,
+                unitFontSize = 15,
+                modifier = Modifier.weight(1f)
+            )
+            RunningMetricItem(
+                value = uiState.caloriesKcal.toString(),
+                unit = "kcal",
+                label = "消耗",
+                valueFontSize = 31,
+                unitFontSize = 16,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun RunningPanelHeader(isPaused: Boolean) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "户外跑步",
+            color = Color.White,
+            fontSize = 21.sp,
+            lineHeight = 24.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1
+        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "●",
+                color = RunHudGreen,
+                fontSize = 13.sp,
+                lineHeight = 13.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = if (isPaused) "已暂停" else "记录中",
+                color = RunHudUnit,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun RunningMetricItem(
+    value: String,
+    unit: String,
+    label: String,
+    valueFontSize: Int,
+    unitFontSize: Int,
+    modifier: Modifier = Modifier,
+    useTabularNumbers: Boolean = false
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(5.dp),
+        horizontalAlignment = Alignment.Start
+    ) {
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(
+                text = value,
+                color = Color.White,
+                fontSize = valueFontSize.sp,
+                lineHeight = (valueFontSize + 3).sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                style = TextStyle(fontFeatureSettings = if (useTabularNumbers) "tnum" else null)
+            )
+            if (unit.isNotEmpty()) {
+                Text(
+                    text = " $unit",
+                    color = RunHudUnit,
+                    fontSize = unitFontSize.sp,
+                    lineHeight = (unitFontSize + 2).sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    modifier = Modifier.padding(bottom = 4.dp)
                 )
             }
+        }
+        Text(
+            text = label,
+            color = RunHudLabel,
+            fontSize = 13.sp,
+            lineHeight = 15.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1
         )
     }
 }
@@ -224,6 +361,8 @@ private fun RunTrackingOverlayCard(
     uiState: RunTrackingUiState,
     onRequestPermission: () -> Unit,
     onStart: () -> Unit,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
     onFinish: () -> Unit
 ) {
     Column(
@@ -235,6 +374,8 @@ private fun RunTrackingOverlayCard(
             uiState = uiState,
             onRequestPermission = onRequestPermission,
             onStart = onStart,
+            onPause = onPause,
+            onResume = onResume,
             onFinish = onFinish
         )
     }
@@ -256,6 +397,7 @@ private fun RunGpsStatus(
             text = when {
                 !uiState.hasLocationPermission -> "需要精确位置权限才能准确记录运动轨迹"
                 !uiState.hasNotificationPermission -> "需要通知权限才能在息屏时保持跑步记录"
+                uiState.isPaused -> "${uiState.gpsStatusText} · 息屏保持中"
                 uiState.isServiceRunning -> "${uiState.gpsStatusText} · 息屏记录中"
                 else -> uiState.gpsStatusText
             },
@@ -274,6 +416,8 @@ private fun RunTrackingActionButton(
     uiState: RunTrackingUiState,
     onRequestPermission: () -> Unit,
     onStart: () -> Unit,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
     onFinish: () -> Unit
 ) {
     when {
@@ -284,16 +428,110 @@ private fun RunTrackingActionButton(
             AppPrimaryButton(text = "开启通知权限", onClick = onRequestPermission, modifier = Modifier.fillMaxWidth(), height = RunActionButtonHeight)
         }
         uiState.isTracking -> {
-            AppDangerButton(
-                text = if (uiState.isSaving) "保存中..." else "结束跑步",
-                onClick = onFinish,
+            RunPauseResumeHoldButton(
+                text = when {
+                    uiState.isSaving -> "保存中..."
+                    uiState.isPaused -> "继续"
+                    else -> "暂停"
+                },
+                onClick = {
+                    if (uiState.isPaused) onResume() else onPause()
+                },
+                onHoldComplete = onFinish,
+                enabled = !uiState.isSaving,
                 modifier = Modifier.fillMaxWidth(),
-                height = RunActionButtonHeight
             )
         }
         else -> {
             AppPrimaryButton(text = "开始跑步", onClick = onStart, modifier = Modifier.fillMaxWidth(), height = RunActionButtonHeight)
         }
+    }
+}
+
+@Composable
+private fun RunPauseResumeHoldButton(
+    text: String,
+    onClick: () -> Unit,
+    onHoldComplete: () -> Unit,
+    enabled: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val progress = remember { Animatable(0f) }
+    val shape = RoundedCornerShape(20.dp)
+    BoxWithConstraints(
+        modifier = modifier
+            .height(RunActionButtonHeight)
+            .clip(shape)
+            .background(if (enabled) RunGreen else Color(0xFF26313A))
+            .pointerInput(enabled, text) {
+                if (!enabled) return@pointerInput
+                detectTapGestures(
+                    onPress = {
+                        coroutineScope {
+                            var holdCompleted = false
+                            val holdJob = launch {
+                                progress.snapTo(0f)
+                                progress.animateTo(
+                                    targetValue = 1f,
+                                    animationSpec = tween(durationMillis = 1_000, easing = LinearEasing)
+                                )
+                            holdCompleted = true
+                                onHoldComplete()
+                                progress.snapTo(0f)
+                            }
+                            val released = tryAwaitRelease()
+                            if (released && !holdCompleted) {
+                                holdJob.cancel()
+                                progress.animateTo(0f, tween(durationMillis = 120))
+                                onClick()
+                            } else if (!holdCompleted) {
+                                holdJob.cancel()
+                                progress.snapTo(0f)
+                            }
+                        }
+                    }
+                )
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .width(maxWidth * progress.value)
+                .height(RunActionButtonHeight)
+                .background(Color(0xFF06130E).copy(alpha = 0.18f))
+        )
+        Text(
+            text = if (progress.value > 0f) {
+                "长按结束 ${(progress.value * 100).toInt()}%"
+            } else {
+                runActionButtonText(text)
+            },
+            color = Color(0xFF07130C),
+            fontSize = 18.sp,
+            lineHeight = 21.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1
+        )
+    }
+}
+
+private fun formatHudPaceValue(paceText: String): Pair<String, String> {
+    val normalized = paceText
+        .replace("''/公里", "\"/km")
+        .replace("/公里", "/km")
+    return if (normalized.endsWith("/km")) {
+        normalized.removeSuffix("/km") to "/km"
+    } else {
+        normalized to ""
+    }
+}
+
+private fun runActionButtonText(text: String): String {
+    return when (text) {
+        "暂停" -> "Ⅱ  暂停"
+        "继续" -> "▶  继续"
+        else -> text
     }
 }
 
@@ -324,6 +562,8 @@ private fun RunTrackingScreenPreview() {
             onBack = {},
             onRequestPermission = {},
             onStart = {},
+            onPause = {},
+            onResume = {},
             onFinish = {},
             onDiscard = {}
         )

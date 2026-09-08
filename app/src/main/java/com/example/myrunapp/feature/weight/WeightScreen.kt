@@ -33,6 +33,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -96,12 +97,14 @@ fun WeightRoute(
         onDismissRecordDialog = viewModel::hideRecordDialog,
         onDateChange = viewModel::onInputDateChange,
         onWeightChange = viewModel::onInputWeightChange,
+        onNoteChange = viewModel::onInputNoteChange,
         onSaveWeight = viewModel::saveWeight,
         onRangeChange = viewModel::onRangeChange,
         onTrendClick = onTrendClick,
         onTargetClick = viewModel::showTargetDialog,
         onDismissTargetDialog = viewModel::hideTargetDialog,
         onTargetWeightChange = viewModel::onTargetWeightChange,
+        onHeightCmChange = viewModel::onHeightCmChange,
         onSaveTargetWeight = viewModel::saveTargetWeight,
         modifier = modifier
     )
@@ -117,12 +120,14 @@ fun WeightDetailScreen(
     onDismissRecordDialog: () -> Unit,
     onDateChange: (String) -> Unit,
     onWeightChange: (String) -> Unit,
+    onNoteChange: (String) -> Unit,
     onSaveWeight: () -> Unit,
     onRangeChange: (WeightRange) -> Unit,
     onTrendClick: () -> Unit,
     onTargetClick: () -> Unit,
     onDismissTargetDialog: () -> Unit,
     onTargetWeightChange: (String) -> Unit,
+    onHeightCmChange: (String) -> Unit,
     onSaveTargetWeight: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -143,6 +148,8 @@ fun WeightDetailScreen(
             WeightDetailTopBar(onBack = onBack)
             LatestWeightCard(uiState.weightDetail)
             WeightOverviewCard(uiState.weightDetail)
+            WeightHealthInsightCard(uiState.weightDetail)
+            WeightExerciseCorrelationCard(uiState.weightDetail.exerciseCorrelation)
             WeightTrendEntryCard(uiState = uiState.weightDetail, onClick = onTrendClick)
             RecentWeightRecords(
                 records = uiState.weightDetail.recentRecords,
@@ -162,6 +169,7 @@ fun WeightDetailScreen(
                 onDismiss = onDismissRecordDialog,
                 onDateChange = onDateChange,
                 onWeightChange = onWeightChange,
+                onNoteChange = onNoteChange,
                 onSave = onSaveWeight
             )
         }
@@ -169,8 +177,10 @@ fun WeightDetailScreen(
         if (uiState.isTargetDialogVisible) {
             TargetWeightDialog(
                 value = uiState.inputTargetWeight,
+                heightCm = uiState.inputHeightCm,
                 error = uiState.targetInputError,
                 onValueChange = onTargetWeightChange,
+                onHeightCmChange = onHeightCmChange,
                 onDismiss = onDismissTargetDialog,
                 onSave = onSaveTargetWeight
             )
@@ -311,6 +321,120 @@ private fun OverviewDivider() {
 }
 
 @Composable
+private fun WeightHealthInsightCard(detail: WeightDetailUiState) {
+    DetailCard {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text("健康分析", color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(76.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                HealthInsightItem(
+                    title = "BMI",
+                    value = detail.bmi.bmi?.let { String.format(Locale.US, "%.1f", it) } ?: "--",
+                    subtitle = detail.bmi.category,
+                    color = if (detail.bmi.bmi == null) AppSecondaryText else DetailGreen,
+                    modifier = Modifier.weight(1f)
+                )
+                OverviewDivider()
+                HealthInsightItem(
+                    title = detail.changeSpeed.label,
+                    value = detail.changeSpeed.description,
+                    subtitle = "体重变化速度",
+                    color = detail.changeSpeed.weeklyChangeKg.toChangeColor(),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HealthInsightItem(
+    title: String,
+    value: String,
+    subtitle: String,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        Text(title, color = AppSecondaryText, style = MaterialTheme.typography.bodySmall)
+        Text(value, color = color, fontWeight = FontWeight.Bold, maxLines = 1, textAlign = TextAlign.Center)
+        Text(subtitle, color = AppSecondaryText, style = MaterialTheme.typography.bodySmall, maxLines = 1, textAlign = TextAlign.Center)
+    }
+}
+
+@Composable
+private fun WeightExerciseCorrelationCard(correlation: WeightExerciseCorrelationUiState) {
+    DetailCard {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("运动关联", color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(correlation.insight, color = DetailGreen, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(78.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CorrelationMetric(
+                    title = "近7天运动",
+                    value = "${formatWeight(correlation.sevenDayDistanceKm)} km",
+                    subtitle = "消耗 ${correlation.sevenDayCaloriesKcal} kcal",
+                    modifier = Modifier.weight(1f)
+                )
+                OverviewDivider()
+                CorrelationMetric(
+                    title = "近7天体重",
+                    value = correlation.sevenDayWeightChangeKg.toSignedPlainText(),
+                    subtitle = "较区间首条",
+                    color = correlation.sevenDayWeightChangeKg.toChangeColor(),
+                    modifier = Modifier.weight(1f)
+                )
+                OverviewDivider()
+                CorrelationMetric(
+                    title = "近30天",
+                    value = "${formatWeight(correlation.thirtyDayDistanceKm)} km",
+                    subtitle = correlation.thirtyDayWeightChangeKg.toSignedPlainText(),
+                    color = correlation.thirtyDayWeightChangeKg.toChangeColor(),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CorrelationMetric(
+    title: String,
+    value: String,
+    subtitle: String,
+    modifier: Modifier = Modifier,
+    color: Color = Color.White
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        Text(title, color = AppSecondaryText, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+        Text(value, color = color, fontWeight = FontWeight.Bold, maxLines = 1, textAlign = TextAlign.Center)
+        Text(subtitle, color = AppSecondaryText, style = MaterialTheme.typography.bodySmall, maxLines = 1, textAlign = TextAlign.Center)
+    }
+}
+
+@Composable
 private fun WeightTrendEntryCard(
     uiState: WeightDetailUiState,
     onClick: () -> Unit
@@ -391,7 +515,7 @@ private fun RecentWeightRecords(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun WeightRecordRow(record: WeightRecordItem, onLongClick: () -> Unit) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(
@@ -399,31 +523,44 @@ private fun WeightRecordRow(record: WeightRecordItem, onLongClick: () -> Unit) {
                 onLongClick = onLongClick
             )
             .defaultMinSize(minHeight = RecordRowMinHeight)
-            .padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text(
-            text = record.date,
-            modifier = Modifier.weight(1.45f),
-            color = AppSecondaryText,
-            style = MaterialTheme.typography.bodyMedium,
-            maxLines = 1
-        )
-        Text(
-            text = "${formatWeight(record.weightKg)} kg",
-            modifier = Modifier.weight(1f),
-            color = Color.White,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1
-        )
-        Text(
-            text = record.previousChange.toArrowChangeText(unit = false),
-            modifier = Modifier.weight(0.85f),
-            color = record.previousChange.toChangeColor(),
-            fontWeight = FontWeight.Bold,
-            maxLines = 1
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = record.date,
+                modifier = Modifier.weight(1.45f),
+                color = AppSecondaryText,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1
+            )
+            Text(
+                text = "${formatWeight(record.weightKg)} kg",
+                modifier = Modifier.weight(1f),
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
+            )
+            Text(
+                text = record.previousChange.toArrowChangeText(unit = false),
+                modifier = Modifier.weight(0.85f),
+                color = record.previousChange.toChangeColor(),
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
+            )
+        }
+        record.note?.takeIf { it.isNotBlank() }?.let { note ->
+            Text(
+                text = note,
+                color = AppSecondaryText,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1
+            )
+        }
     }
 }
 
@@ -545,6 +682,7 @@ private fun WeightInputDialog(
     onDismiss: () -> Unit,
     onDateChange: (String) -> Unit,
     onWeightChange: (String) -> Unit,
+    onNoteChange: (String) -> Unit,
     onSave: () -> Unit
 ) {
     var isCalendarVisible by remember { mutableStateOf(false) }
@@ -563,6 +701,10 @@ private fun WeightInputDialog(
                     keyboardType = KeyboardType.Decimal
                 )
                 DatePickerField(selectedDate = uiState.inputDate, onClick = { isCalendarVisible = true })
+                WeightNoteInputField(
+                    value = uiState.inputNote,
+                    onValueChange = onNoteChange
+                )
                 uiState.inputError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
         },
@@ -585,8 +727,10 @@ private fun WeightInputDialog(
 @Composable
 private fun TargetWeightDialog(
     value: String,
+    heightCm: String,
     error: String?,
     onValueChange: (String) -> Unit,
+    onHeightCmChange: (String) -> Unit,
     onDismiss: () -> Unit,
     onSave: () -> Unit
 ) {
@@ -603,10 +747,34 @@ private fun TargetWeightDialog(
                     onValueChange = onValueChange,
                     keyboardType = KeyboardType.Decimal
                 )
+                AppInputField(
+                    label = "身高 cm（用于 BMI）",
+                    value = heightCm,
+                    onValueChange = onHeightCmChange,
+                    keyboardType = KeyboardType.Decimal
+                )
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
         },
         confirmButton = { AppDialogButtonRow(onCancel = onDismiss, onConfirm = onSave, confirmText = "保存") }
+    )
+}
+
+@Composable
+private fun WeightNoteInputField(
+    value: String,
+    onValueChange: (String) -> Unit
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { onValueChange(it.take(100)) },
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(82.dp),
+        label = { Text("备注（选填）") },
+        singleLine = false,
+        maxLines = 3,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text)
     )
 }
 
@@ -682,6 +850,16 @@ private fun WeightDetailScreenPreview() {
                     remainingWeight = 5.20,
                     targetProgress = 0.35f,
                     latestDate = "2026-08-20",
+                    bmi = WeightBmiUiState(heightCm = 178.0, bmi = 24.4, category = "偏高"),
+                    changeSpeed = WeightChangeSpeedUiState(weeklyChangeKg = -0.42, description = "↓ 0.42 kg/周"),
+                    exerciseCorrelation = WeightExerciseCorrelationUiState(
+                        sevenDayDistanceKm = 12.3,
+                        sevenDayCaloriesKcal = 760,
+                        sevenDayWeightChangeKg = -0.4,
+                        thirtyDayDistanceKm = 48.2,
+                        thirtyDayWeightChangeKg = -1.2,
+                        insight = "最近运动后体重呈下降趋势"
+                    ),
                     chartRecords = listOf(
                         WeightPoint("2026-08-16", 78.0),
                         WeightPoint("2026-08-17", 77.8),
@@ -690,7 +868,7 @@ private fun WeightDetailScreenPreview() {
                         WeightPoint("2026-08-20", 77.2)
                     ),
                     recentRecords = listOf(
-                        WeightRecordItem("2026-08-20", 77.2, -0.3),
+                        WeightRecordItem("2026-08-20", 77.2, -0.3, "跑后称重"),
                         WeightRecordItem("2026-08-19", 77.5, -0.1)
                     )
                 )
@@ -702,12 +880,14 @@ private fun WeightDetailScreenPreview() {
             onDismissRecordDialog = {},
             onDateChange = {},
             onWeightChange = {},
+            onNoteChange = {},
             onSaveWeight = {},
             onRangeChange = {},
             onTrendClick = {},
             onTargetClick = {},
             onDismissTargetDialog = {},
             onTargetWeightChange = {},
+            onHeightCmChange = {},
             onSaveTargetWeight = {}
         )
     }

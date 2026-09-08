@@ -51,6 +51,7 @@ fun AMapRunTrackingMap(
     points: List<RunTrackPointUiModel>,
     isTracking: Boolean,
     hasLocationPermission: Boolean,
+    mapDisplayType: RunMapDisplayType = RunMapDisplayType.Normal,
     modifier: Modifier = Modifier
 ) {
     val validPoints = remember(points) { points.filterValidRunMapPoints() }
@@ -71,7 +72,7 @@ fun AMapRunTrackingMap(
         31 * (location.latLng.latitude * 1_000_000).roundToLong() +
             (location.latLng.longitude * 1_000_000).roundToLong()
     } ?: 0L
-    val finalRenderSignature = 31 * renderSignature + fallbackLocationSignature
+    val finalRenderSignature = 31 * (31 * renderSignature + fallbackLocationSignature) + mapDisplayType.ordinal
     val shouldFollowNativeLocation = validPoints.size < 2
     val locationSource = remember(context, isTracking) {
         RunMapLocationSource(
@@ -130,26 +131,29 @@ fun AMapRunTrackingMap(
         }
     }
 
-    LaunchedEffect(mapView, locationSource, hasLocationPermission, shouldFollowNativeLocation) {
+    LaunchedEffect(mapView, locationSource, hasLocationPermission, shouldFollowNativeLocation, mapDisplayType) {
         if (mapConfigured) {
             AppLogger.d(
                 LogTags.MAP,
-                "reconfigure tracking map without blocking render hasPermission=$hasLocationPermission followNative=$shouldFollowNativeLocation"
+                "reconfigure tracking map without blocking render hasPermission=$hasLocationPermission " +
+                    "followNative=$shouldFollowNativeLocation mapType=${mapDisplayType.label}"
             )
         }
         AppLogger.d(
             LogTags.MAP,
-            "request tracking map async configure hasPermission=$hasLocationPermission followNative=$shouldFollowNativeLocation"
+            "request tracking map async configure hasPermission=$hasLocationPermission " +
+                "followNative=$shouldFollowNativeLocation mapType=${mapDisplayType.label}"
         )
         mapView.getMapAsyn { map ->
             configuredMap = map
-            map.configureSportTrackUi()
+            map.configureSportTrackUi(mapDisplayType)
             map.configureNativeMyLocation(context, locationSource, hasLocationPermission)
             map.configureRoadLevelNativeLocationZoom(shouldFollowNativeLocation)
             mapConfigured = true
             AppLogger.d(
                 LogTags.MAP,
-                "tracking map configured hasPermission=$hasLocationPermission followNative=$shouldFollowNativeLocation"
+                "tracking map configured hasPermission=$hasLocationPermission " +
+                    "followNative=$shouldFollowNativeLocation mapType=${mapDisplayType.label}"
             )
         }
     }
@@ -201,7 +205,6 @@ private fun AMap.renderRunTrackingTrack(
     isTracking: Boolean,
     fallbackMapLocation: RunMapLocation?
 ) {
-    configureSportTrackUi()
     AppLogger.d(
         LogTags.MAP,
         "track render executed points=${points.size} isTracking=$isTracking fallback=${fallbackMapLocation != null}"

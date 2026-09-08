@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -63,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.myrunapp.feature.home.GradientSportCardBackground
 import com.example.myrunapp.feature.run.RunTrackPointUiModel
+import com.example.myrunapp.feature.run.formatRunClock
 import com.example.myrunapp.ui.components.AppPageTopBar
 import com.example.myrunapp.ui.components.AppDangerButton
 import com.example.myrunapp.ui.components.AppDialogButtonRow
@@ -77,17 +79,35 @@ import com.example.myrunapp.ui.theme.AppGrid
 import com.example.myrunapp.ui.theme.AppSecondaryText
 import com.example.myrunapp.ui.theme.AppSurface
 import com.example.myrunapp.ui.theme.MyRunAppTheme
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.math.abs
 
 private val ExerciseGreen = Color(0xFF22C55E)
 private val CardDark = Color(0xFF111820)
 private val RecordRowMinHeight = 64.dp
 
+private data class ExerciseMonthGroup(
+    val year: Int,
+    val month: Int,
+    val records: List<ExerciseRecordUiModel>,
+    val totalDistanceKm: Double,
+    val totalDurationSeconds: Long,
+    val totalCaloriesKcal: Int
+)
+
+private enum class ExerciseTrendMetric {
+    DISTANCE,
+    PACE
+}
+
 @Composable
 fun ExerciseRoute(
     viewModel: ExerciseViewModel,
     onBack: () -> Unit,
     onRecordClick: (Long) -> Unit,
+    onStatsPeriodClick: (ExerciseStatsPeriod) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -111,6 +131,7 @@ fun ExerciseRoute(
         onDeleteRecord = viewModel::deleteExercise,
         onEditRecord = viewModel::showEditDialog,
         onRecordClick = onRecordClick,
+        onStatsPeriodClick = onStatsPeriodClick,
         onStatsRangeChange = viewModel::onStatsRangeChange,
         modifier = modifier
     )
@@ -136,6 +157,7 @@ fun ExerciseDetailScreen(
     onDeleteRecord: (Long) -> Unit,
     onEditRecord: (ExerciseRecordUiModel) -> Unit,
     onRecordClick: (Long) -> Unit,
+    onStatsPeriodClick: (ExerciseStatsPeriod) -> Unit,
     onStatsRangeChange: (ExerciseStatsRange) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -184,27 +206,31 @@ fun ExerciseDetailScreen(
                 start = 16.dp,
                 top = PageTopSpacing,
                 end = 16.dp,
-                bottom = 18.dp
+                bottom = 104.dp
             ),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
             item { ExerciseDetailTopBar(onBack = onBack) }
-            item {
-                ExerciseOverviewCard(
-                    detail = uiState.detail,
-                    onStatsRangeChange = onStatsRangeChange
-                )
-            }
+            item { ExerciseTotalMileageHeader(detail = uiState.detail) }
+            item { ExerciseStatsSummary(detail = uiState.detail) }
+            item { ExerciseStatsEntryRow(onStatsPeriodClick = onStatsPeriodClick) }
             if (uiState.detail.records.isEmpty()) {
                 item { EmptyExerciseRecords() }
             } else {
-                items(uiState.detail.records, key = { it.id }) { record ->
-                    ExerciseRecordItem(
-                        record = record,
-                        onClick = { onRecordClick(record.id) },
-                        onLongClick = { actionRecord = record }
-                    )
+                val monthGroups = uiState.detail.records.toExerciseMonthGroups()
+                monthGroups.forEach { group ->
+                    item(key = "month-${group.year}-${group.month}") {
+                        ExerciseMonthSummary(group = group)
+                    }
+                    items(group.records, key = { it.id }) { record ->
+                        ExerciseRecordItem(
+                            record = record,
+                            onClick = { onRecordClick(record.id) },
+                            onLongClick = { actionRecord = record }
+                        )
+                    }
                 }
+                item { ExercisePersonalBestCard(personalBest = uiState.detail.personalBest) }
             }
         }
     }
@@ -262,8 +288,189 @@ fun ExerciseDetailScreen(
 }
 
 @Composable
+private fun ExerciseStatsEntryRow(
+    onStatsPeriodClick: (ExerciseStatsPeriod) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        ExerciseStatsEntryButton(
+            text = "周统计",
+            onClick = { onStatsPeriodClick(ExerciseStatsPeriod.WEEK) },
+            modifier = Modifier.weight(1f)
+        )
+        ExerciseStatsEntryButton(
+            text = "月统计",
+            onClick = { onStatsPeriodClick(ExerciseStatsPeriod.MONTH) },
+            modifier = Modifier.weight(1f)
+        )
+        ExerciseStatsEntryButton(
+            text = "年统计",
+            onClick = { onStatsPeriodClick(ExerciseStatsPeriod.YEAR) },
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun ExerciseStatsEntryButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .height(36.dp)
+            .background(Color(0x66151E26), RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            color = AppSecondaryText,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
 private fun ExerciseDetailTopBar(onBack: () -> Unit) {
-    AppPageTopBar(title = "运动详情", showBackButton = true, onBackClick = onBack)
+    AppPageTopBar(title = "运动记录", showBackButton = true, onBackClick = onBack)
+}
+
+@Composable
+private fun ExerciseTotalMileageHeader(detail: ExerciseDetailUiState) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp, bottom = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(
+                text = formatDistance(detail.totalDistanceKm),
+                color = Color.White,
+                fontSize = 46.sp,
+                lineHeight = 50.sp,
+                fontWeight = FontWeight.Black,
+                maxLines = 1
+            )
+            Text(
+                text = " km",
+                color = AppSecondaryText,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 6.dp)
+            )
+        }
+        Text(
+            text = "累计里程",
+            color = AppSecondaryText,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+@Composable
+private fun ExerciseStatsSummary(detail: ExerciseDetailUiState) {
+    val records = detail.records
+    val totalDurationSeconds = records.sumOf { it.durationSeconds }
+    val averageDistanceKm = if (records.isNotEmpty()) detail.totalDistanceKm / records.size else 0.0
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            HistoryStatItem("累计运动", "${records.size} 次", Modifier.weight(1f))
+            HistoryStatItem("总时长", formatHoursText(totalDurationSeconds), Modifier.weight(1f))
+            HistoryStatItem("总消耗", "${formatCalories(detail.totalCaloriesKcal)} kcal", Modifier.weight(1f))
+        }
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            HistoryStatItem("平均里程", "${formatDistance(averageDistanceKm)} km", Modifier.weight(1f))
+            HistoryStatItem("平均配速", formatPace(totalDurationSeconds, detail.totalDistanceKm), Modifier.weight(1f))
+            HistoryStatItem("最长连续", "${detail.consistency.streakDays} 天", Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun HistoryStatItem(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        Text(
+            text = label,
+            color = AppSecondaryText,
+            fontSize = 13.sp,
+            maxLines = 1
+        )
+        Text(
+            text = value,
+            color = Color.White,
+            fontSize = 20.sp,
+            lineHeight = 23.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun ExerciseMonthSummary(group: ExerciseMonthGroup) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 0.dp, bottom = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 1.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    text = monthChineseName(group.month),
+                    color = Color.White,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = group.year.toString(),
+                    color = AppSecondaryText,
+                    fontSize = 13.sp
+                )
+            }
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text(
+                    text = "${formatDistance(group.totalDistanceKm)} km",
+                    color = Color.White,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "累计${group.records.size}次，共${formatHoursText(group.totalDurationSeconds)}",
+                    color = AppSecondaryText,
+                    fontSize = 12.sp
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -291,7 +498,7 @@ private fun ExerciseOverviewCard(
             //GradientSportCardBackground(modifier = Modifier.fillMaxSize())
             Column(
                 modifier = Modifier.padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp)
+                verticalArrangement = Arrangement.spacedBy(5.dp)
             ) {
                 ExerciseStatsRangeSelector(
                     selectedRange = detail.selectedStatsRange,
@@ -356,7 +563,7 @@ private fun ExerciseStatsRangeSelector(
 private fun OverviewRow(content: @Composable RowScope.() -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(0.dp),
         verticalAlignment = Alignment.CenterVertically,
         content = content
     )
@@ -367,6 +574,268 @@ private fun OverviewMetric(value: String, label: String, modifier: Modifier = Mo
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Text(value, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold, maxLines = 1)
         Text(label, color = AppSecondaryText, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
+private fun ExerciseTrendCard(trend: ExerciseTrendUiState) {
+    var selectedMetric by remember { mutableStateOf(ExerciseTrendMetric.DISTANCE) }
+    val hasDistanceData = trend.points.any { it.distanceKm > 0.0 }
+    val hasPaceData = trend.points.any { it.averagePaceSecondsPerKm != null }
+    val hasData = if (selectedMetric == ExerciseTrendMetric.DISTANCE) hasDistanceData else hasPaceData
+
+    ExerciseDarkCard {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("趋势图", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                ExerciseTrendMetricSelector(
+                    selected = selectedMetric,
+                    onSelected = { selectedMetric = it }
+                )
+            }
+            if (hasData) {
+                ExerciseTrendChart(
+                    trend = trend,
+                    metric = selectedMetric,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(142.dp)
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(142.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("暂无趋势数据", color = AppSecondaryText, fontSize = 13.sp)
+                }
+            }
+            ExerciseTrendLabels(points = trend.points)
+        }
+    }
+}
+
+@Composable
+private fun ExerciseTrendMetricSelector(
+    selected: ExerciseTrendMetric,
+    onSelected: (ExerciseTrendMetric) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .background(Color(0xB30C1218), RoundedCornerShape(10.dp))
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        ExerciseTrendMetric.values().forEach { metric ->
+            val active = metric == selected
+            Box(
+                modifier = Modifier
+                    .height(28.dp)
+                    .background(if (active) ExerciseGreen else Color.Transparent, RoundedCornerShape(8.dp))
+                    .clickable { onSelected(metric) }
+                    .padding(horizontal = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = if (metric == ExerciseTrendMetric.DISTANCE) "跑量" else "配速",
+                    color = if (active) Color(0xFF06130E) else AppSecondaryText,
+                    fontSize = 12.sp,
+                    fontWeight = if (active) FontWeight.Bold else FontWeight.Medium
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExerciseTrendChart(
+    trend: ExerciseTrendUiState,
+    metric: ExerciseTrendMetric,
+    modifier: Modifier = Modifier
+) {
+    val values = trend.points.map { point ->
+        when (metric) {
+            ExerciseTrendMetric.DISTANCE -> point.distanceKm
+            ExerciseTrendMetric.PACE -> point.averagePaceSecondsPerKm?.toDouble() ?: 0.0
+        }
+    }
+    val maxValue = values.maxOrNull()?.coerceAtLeast(0.0) ?: 0.0
+    val minValue = values.filter { it > 0.0 }.minOrNull() ?: 0.0
+    val chartValues = if (metric == ExerciseTrendMetric.PACE) {
+        values.map { value -> if (value > 0.0) maxValue - value + minValue else 0.0 }
+    } else {
+        values
+    }
+    val chartMax = chartValues.maxOrNull()?.coerceAtLeast(0.0) ?: 0.0
+
+    Canvas(modifier = modifier) {
+        val horizontalPadding = 10.dp.toPx()
+        val verticalPadding = 8.dp.toPx()
+        val chartWidth = (size.width - horizontalPadding * 2).coerceAtLeast(1f)
+        val chartHeight = (size.height - verticalPadding * 2).coerceAtLeast(1f)
+
+        repeat(4) { index ->
+            val y = verticalPadding + chartHeight * index / 3f
+            drawLine(
+                color = AppGrid.copy(alpha = 0.32f),
+                start = Offset(horizontalPadding, y),
+                end = Offset(size.width - horizontalPadding, y),
+                strokeWidth = 1.dp.toPx()
+            )
+        }
+
+        if (chartMax <= 0.0 || chartValues.isEmpty()) return@Canvas
+
+        val path = Path()
+        chartValues.forEachIndexed { index, value ->
+            if (value <= 0.0) return@forEachIndexed
+            val x = if (chartValues.size == 1) {
+                size.width / 2f
+            } else {
+                horizontalPadding + chartWidth * index / (chartValues.lastIndex).coerceAtLeast(1)
+            }
+            val y = verticalPadding + chartHeight - (chartHeight * (value / chartMax).toFloat())
+            if (path.isEmpty) {
+                path.moveTo(x, y)
+            } else {
+                path.lineTo(x, y)
+            }
+        }
+
+        drawPath(
+            path = path,
+            color = ExerciseGreen.copy(alpha = 0.95f),
+            style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
+        )
+    }
+}
+
+@Composable
+private fun ExerciseTrendLabels(points: List<ExerciseTrendPointUiState>) {
+    if (points.isEmpty()) return
+    val first = points.first().label
+    val middle = points[points.lastIndex / 2].label
+    val last = points.last().label
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(first, color = AppSecondaryText, fontSize = 11.sp)
+        Text(middle, color = AppSecondaryText, fontSize = 11.sp)
+        Text(last, color = AppSecondaryText, fontSize = 11.sp)
+    }
+}
+
+@Composable
+private fun ExercisePersonalBestCard(personalBest: ExercisePersonalBestUiState) {
+    ExerciseDarkCard {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Text("个人最佳", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            OverviewRow {
+                PersonalBestItem("最长距离", personalBest.longestDistance, Modifier.weight(1f))
+                PersonalBestItem("最快1km", personalBest.fastestOneKm, Modifier.weight(1f))
+            }
+            OverviewRow {
+                PersonalBestItem("最快5km", personalBest.fastestFiveKm, Modifier.weight(1f))
+                PersonalBestItem("最高消耗", personalBest.highestCalories, Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun PersonalBestItem(
+    label: String,
+    item: ExercisePersonalBestItemUiState,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            //.background(Color(0x66151E26), RoundedCornerShape(12.dp))
+            .padding(0.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp)
+    ) {
+        Text(item.value, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        Text(label, color = AppSecondaryText, fontSize = 12.sp, maxLines = 1)
+        val helperText = item.dateText.ifEmpty { item.subtitle }
+        if (helperText.isNotEmpty()) {
+            Text(helperText, color = ExerciseGreen.copy(alpha = 0.84f), fontSize = 10.sp, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun ExerciseConsistencyCard(consistency: ExerciseConsistencyUiState) {
+    ExerciseDarkCard {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ConsistencyMetric(
+                value = "${consistency.streakDays} 天",
+                label = "连续打卡",
+                helper = "最近 ${consistency.latestCheckInDateText}",
+                modifier = Modifier.weight(1f)
+            )
+            ConsistencyMetric(
+                value = "${consistency.monthlyActiveDays} 天",
+                label = "本月活跃",
+                helper = "自然月统计",
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ConsistencyMetric(
+    value: String,
+    label: String,
+    helper: String,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Text(value, color = ExerciseGreen, fontSize = 24.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        Text(label, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text(helper, color = AppSecondaryText, fontSize = 11.sp, maxLines = 1)
+    }
+}
+
+@Composable
+private fun ExerciseDarkCard(content: @Composable () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    brush = Brush.linearGradient(
+                        colors = listOf(Color(0xFF151E26), CardDark),
+                        start = Offset.Zero,
+                        end = Offset.Infinite
+                    )
+                )
+        ) {
+            content()
+        }
     }
 }
 
@@ -401,10 +870,89 @@ private fun ExerciseRecordItem(
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
-    if (record.isOutdoorRun && record.hasTrack) {
-        OutdoorExerciseRecordItem(record = record, onClick = onClick, onLongClick = onLongClick)
-    } else {
-        BasicExerciseRecordItem(record = record, onClick = onClick, onLongClick = onLongClick)
+    ExerciseHistoryRecordItem(record = record, onClick = onClick, onLongClick = onLongClick)
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ExerciseHistoryRecordItem(
+    record: ExerciseRecordUiModel,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
+            .padding(vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = formatHistoryRecordDate(record.startTime),
+                color = Color.White.copy(alpha = 0.88f),
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1
+            )
+            Text(
+                text = if (record.isOutdoorRun) "户外跑步" else record.typeText,
+                color = AppSecondaryText,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (record.isOutdoorRun && record.hasTrack) {
+                TrackThumbnail(
+                    points = record.trackPoints,
+                    modifier = Modifier
+                        .width(100.dp)
+                        .height(86.dp)
+                )
+            } else {
+                IndoorRunThumbnail(
+                    modifier = Modifier
+                        .width(100.dp)
+                        .height(86.dp)
+                )
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = record.distanceText,
+                    color = Color.White,
+                    fontSize = 28.sp,
+                    lineHeight = 30.sp,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(formatRunClock(record.durationSeconds), color = AppSecondaryText, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+                    Text(record.paceText, color = AppSecondaryText, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+                    Text(record.caloriesText, color = AppSecondaryText, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+                }
+            }
+        }
+        HorizontalDivider(color = Color.White.copy(alpha = 0.10f), thickness = 1.dp)
     }
 }
 
@@ -579,6 +1127,90 @@ private fun TrackThumbnail(
         )
         drawCircle(color = Color(0xFF38BDF8), radius = 3.dp.toPx(), center = offsets.first())
         drawCircle(color = ExerciseGreen, radius = 3.dp.toPx(), center = offsets.last())
+    }
+}
+
+@Composable
+private fun IndoorRunThumbnail(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .background(Color(0xB30C1218), RoundedCornerShape(12.dp))
+            .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(12.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text("RUN", color = ExerciseGreen, fontSize = 18.sp, fontWeight = FontWeight.Black)
+            Text("INDOOR", color = AppSecondaryText, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+private fun List<ExerciseRecordUiModel>.toExerciseMonthGroups(): List<ExerciseMonthGroup> {
+    return groupBy { record ->
+        val calendar = CalendarHolder.calendarFor(record.startTime)
+        calendar.get(java.util.Calendar.YEAR) to (calendar.get(java.util.Calendar.MONTH) + 1)
+    }.map { (yearMonth, records) ->
+        ExerciseMonthGroup(
+            year = yearMonth.first,
+            month = yearMonth.second,
+            records = records.sortedByDescending { it.startTime },
+            totalDistanceKm = records.sumOf { it.distanceKm },
+            totalDurationSeconds = records.sumOf { it.durationSeconds },
+            totalCaloriesKcal = records.sumOf { caloriesTextToInt(it.caloriesText) }
+        )
+    }.sortedWith(
+        compareByDescending<ExerciseMonthGroup> { it.year }
+            .thenByDescending { it.month }
+    )
+}
+
+private fun formatHistoryRecordDate(startTime: Long): String {
+    val date = Date(startTime)
+    val monthDay = SimpleDateFormat("M月d日", Locale.CHINA).format(date)
+    val time = SimpleDateFormat("HH:mm", Locale.CHINA).format(date)
+    val week = SimpleDateFormat("E", Locale.CHINA).format(date)
+    return "$monthDay  $time  $week"
+}
+
+private fun monthChineseName(month: Int): String {
+    return when (month) {
+        1 -> "一月"
+        2 -> "二月"
+        3 -> "三月"
+        4 -> "四月"
+        5 -> "五月"
+        6 -> "六月"
+        7 -> "七月"
+        8 -> "八月"
+        9 -> "九月"
+        10 -> "十月"
+        11 -> "十一月"
+        12 -> "十二月"
+        else -> "${month}月"
+    }
+}
+
+private fun formatHoursText(totalDurationSeconds: Long): String {
+    val hours = totalDurationSeconds / 3600.0
+    return if (hours >= 10.0) {
+        String.format(Locale.US, "%.1f 小时", hours)
+    } else {
+        String.format(Locale.US, "%.2f 小时", hours)
+    }
+}
+
+private fun caloriesTextToInt(value: String): Int {
+    return value.filter { it.isDigit() }.toIntOrNull() ?: 0
+}
+
+private object CalendarHolder {
+    fun calendarFor(timeMillis: Long): java.util.Calendar {
+        return java.util.Calendar.getInstance().apply {
+            timeInMillis = timeMillis
+        }
     }
 }
 
@@ -1076,6 +1708,7 @@ private fun ExerciseDetailScreenPreview() {
             onDeleteRecord = {},
             onEditRecord = {},
             onRecordClick = {},
+            onStatsPeriodClick = {},
             onStatsRangeChange = {}
         )
     }

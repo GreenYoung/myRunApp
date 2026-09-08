@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -27,6 +26,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -41,8 +41,11 @@ import com.example.myrunapp.feature.exercise.formatCalories
 import com.example.myrunapp.feature.exercise.formatDistance
 
 private val ExerciseGreen = Color(0xFF22C55E)
+private val ExerciseHudGreen = Color(0xFF0BDA51)
 private val ExerciseFire = Color(0xFFFF654F)
-private val ExerciseCardBackground = Color(0xFF111820)
+private val ExerciseCardBackground = Color(0xFF101820)
+private val ExerciseHudUnit = Color(0xFFB6BDC5)
+private val ExerciseHudLabel = Color(0xFF7F8893)
 private val MissingRecordAction = Color(0xFF86EFAC)
 
 @Composable
@@ -68,13 +71,11 @@ fun ExerciseSummaryCard(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(18.dp),
+                    .padding(horizontal = 22.dp, vertical = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp)
             ) {
                 ExerciseCardHeader(checkedInToday = uiState.checkedInToday)
-                ExerciseMainStats(uiState = uiState)
-                //ExerciseGoalReminder(uiState = uiState)
-                ExerciseMetricsGrid(uiState = uiState)
+                ExerciseHomeHudMetrics(uiState = uiState)
             }
         }
     }
@@ -125,16 +126,117 @@ private fun ExerciseCardHeader(
             horizontalArrangement = Arrangement.spacedBy(5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (checkedInToday) {
-                Text(text = "✓", color = ExerciseGreen, fontWeight = FontWeight.Bold)
-            }
+            Text("●", color = ExerciseHudGreen, fontSize = 13.sp, lineHeight = 13.sp, fontWeight = FontWeight.Bold)
             Text(
                 text = if (checkedInToday) "今日已打卡" else "今日未打卡",
-                color = AppSecondaryText,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium
+                color = if (checkedInToday) ExerciseHudUnit else AppSecondaryText,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold
             )
         }
+    }
+}
+
+@Composable
+private fun ExerciseHomeHudMetrics(
+    uiState: ExerciseSummaryUiState,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            ExerciseHomeHudMetric(
+                value = if (uiState.checkedInToday) formatDistance(uiState.todayDistanceKm) else "去打卡",
+                unit = if (uiState.checkedInToday) "km" else "",
+                label = "今日里程",
+                valueColor = if (uiState.checkedInToday) Color.White else MissingRecordAction,
+                valueFontSize = if (uiState.checkedInToday) 35 else 31,
+                unitFontSize = 17,
+                modifier = Modifier.weight(1f)
+            )
+            ExerciseHomeHudMetric(
+                value = formatDistance(uiState.weeklyDistanceKm),
+                unit = "km",
+                label = "本周累计",
+                valueFontSize = 32,
+                unitFontSize = 16,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            ExerciseHomeHudMetric(
+                value = formatDistance(uiState.monthlyDistanceKm),
+                unit = "km",
+                label = "本月累计",
+                valueFontSize = 31,
+                unitFontSize = 15,
+                modifier = Modifier.weight(1f)
+            )
+            ExerciseHomeHudMetric(
+                value = formatCalories(uiState.todayCaloriesKcal),
+                unit = "kcal",
+                label = "今日消耗",
+                valueFontSize = 31,
+                unitFontSize = 15,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ExerciseHomeHudMetric(
+    value: String,
+    unit: String,
+    label: String,
+    modifier: Modifier = Modifier,
+    valueColor: Color = Color.White,
+    valueFontSize: Int,
+    unitFontSize: Int
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.Start,
+        verticalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(
+                text = value,
+                color = valueColor,
+                fontSize = valueFontSize.sp,
+                lineHeight = (valueFontSize + 3).sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                style = TextStyle(fontFeatureSettings = "tnum")
+            )
+            if (unit.isNotEmpty()) {
+                Text(
+                    text = " $unit",
+                    color = ExerciseHudUnit,
+                    fontSize = unitFontSize.sp,
+                    lineHeight = (unitFontSize + 2).sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
+            }
+        }
+        Text(
+            text = label,
+            color = ExerciseHudLabel,
+            fontSize = 13.sp,
+            lineHeight = 15.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1
+        )
     }
 }
 
@@ -216,13 +318,12 @@ private fun TodayDistanceSection(
             Text(
                 text = if (checkedInToday) formatDistance(todayDistanceKm) else "去打卡",
                 color = if (checkedInToday) Color.White else MissingRecordAction,
-                fontSize = if (checkedInToday) 44.sp else 34.sp,
+                fontSize = if (checkedInToday) 38.sp else 34.sp,
                 lineHeight = 48.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1
             )
             if (checkedInToday) {
-                Spacer(modifier = Modifier.width(5.dp))
                 Text(
                     text = "km",
                     color = AppSecondaryText,
@@ -249,8 +350,9 @@ private fun TodayDistanceSection(
 //            fontWeight = FontWeight.Bold,
 //            maxLines = 1
 //        )
+
         Text(
-            text = if (!checkedInToday) "" else "去记录一次运动",
+            text = if (checkedInToday) "" else "去记录一次运动",
             color = if (checkedInToday) ExerciseGreen else AppSecondaryText,
             style = MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.SemiBold,

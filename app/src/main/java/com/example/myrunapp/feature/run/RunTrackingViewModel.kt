@@ -102,6 +102,16 @@ class RunTrackingViewModel(
         appContext.startService(RunTrackingService.discardIntent(appContext))
     }
 
+    fun pauseTracking() {
+        AppLogger.i(LogTags.RUN, "pause requested from ViewModel")
+        appContext.startService(RunTrackingService.pauseIntent(appContext))
+    }
+
+    fun resumeTracking() {
+        AppLogger.i(LogTags.RUN, "resume requested from ViewModel")
+        appContext.startService(RunTrackingService.resumeIntent(appContext))
+    }
+
     fun finishTracking(onSaved: (Long) -> Unit) {
         if (uiState.value.isSaving) return
         if (!uiState.value.canSave) {
