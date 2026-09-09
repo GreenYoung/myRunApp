@@ -148,7 +148,6 @@ fun WeightDetailScreen(
             WeightDetailTopBar(onBack = onBack)
             LatestWeightCard(uiState.weightDetail)
             WeightOverviewCard(uiState.weightDetail)
-            WeightHealthInsightCard(uiState.weightDetail)
             WeightExerciseCorrelationCard(uiState.weightDetail.exerciseCorrelation)
             WeightTrendEntryCard(uiState = uiState.weightDetail, onClick = onTrendClick)
             RecentWeightRecords(
@@ -207,12 +206,7 @@ private fun LatestWeightCard(detail: WeightDetailUiState) {
             ) {
                 Text("最新体重", color = AppSecondaryText, style = MaterialTheme.typography.titleMedium)
                 WeightValueText(weight = detail.latestWeight, numberSize = 54)
-                Text(
-                    text = detail.previousChange.toArrowChangeText(unit = true),
-                    color = detail.previousChange.toChangeColor(),
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                WeightBmiSummary(detail.bmi)
                 Text(
                     text = detail.latestDate?.let { "记录日期：$it" } ?: "暂无记录",
                     color = AppSecondaryText,
@@ -221,6 +215,34 @@ private fun LatestWeightCard(detail: WeightDetailUiState) {
             }
             TargetProgressBlock(detail)
         }
+    }
+}
+
+@Composable
+private fun WeightBmiSummary(bmi: WeightBmiUiState) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "BMI",
+            color = AppSecondaryText,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium
+        )
+        Text(
+            text = bmi.bmi?.let { String.format(Locale.US, "%.1f", it) } ?: "--",
+            color = if (bmi.bmi == null) AppSecondaryText else DetailGreen,
+            fontSize = 17.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            text = bmi.category,
+            color = AppSecondaryText,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1
+        )
     }
 }
 
@@ -468,6 +490,7 @@ private fun RecentWeightRecords(
 ) {
     var actionRecord by remember { mutableStateOf<WeightRecordItem?>(null) }
     var pendingDeleteRecord by remember { mutableStateOf<WeightRecordItem?>(null) }
+    var expandedDate by remember { mutableStateOf<String?>(null) }
 
     DetailCard {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -478,7 +501,16 @@ private fun RecentWeightRecords(
             }
             Column(modifier = Modifier.fillMaxWidth()) {
                 records.forEach { record ->
-                    WeightRecordRow(record = record, onLongClick = { actionRecord = record })
+                    WeightRecordRow(
+                        record = record,
+                        expanded = expandedDate == record.date,
+                        onClick = {
+                            expandedDate = if (expandedDate == record.date) null else record.date
+                        },
+                        onLongClick = { actionRecord = record },
+                        onEdit = { onEditRecord(record) },
+                        onDelete = { pendingDeleteRecord = record }
+                    )
                     HorizontalDivider(color = Color.White.copy(alpha = 0.10f), thickness = 1.dp)
                 }
             }
@@ -514,12 +546,19 @@ private fun RecentWeightRecords(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun WeightRecordRow(record: WeightRecordItem, onLongClick: () -> Unit) {
+private fun WeightRecordRow(
+    record: WeightRecordItem,
+    expanded: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(
-                onClick = {},
+                onClick = onClick,
                 onLongClick = onLongClick
             )
             .defaultMinSize(minHeight = RecordRowMinHeight)
@@ -559,6 +598,51 @@ private fun WeightRecordRow(record: WeightRecordItem, onLongClick: () -> Unit) {
                 color = AppSecondaryText,
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 1
+            )
+        }
+        if (expanded) {
+            WeightRecordExpandedContent(
+                note = record.note,
+                onEdit = onEdit,
+                onDelete = onDelete
+            )
+        }
+    }
+}
+
+@Composable
+private fun WeightRecordExpandedContent(
+    note: String?,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color.White.copy(alpha = 0.04f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            text = note?.takeIf { it.isNotBlank() }?.let { "备注：$it" } ?: "暂无备注",
+            color = AppSecondaryText,
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 2
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            AppSecondaryButton(
+                text = "编辑",
+                onClick = onEdit,
+                modifier = Modifier.weight(1f),
+                height = 42.dp
+            )
+            AppDangerButton(
+                text = "删除",
+                onClick = onDelete,
+                modifier = Modifier.weight(1f)
             )
         }
     }

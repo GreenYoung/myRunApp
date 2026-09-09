@@ -230,7 +230,6 @@ fun ExerciseDetailScreen(
                         )
                     }
                 }
-                item { ExercisePersonalBestCard(personalBest = uiState.detail.personalBest) }
             }
         }
     }
