@@ -34,7 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.myrunapp.ui.theme.MyRunAppTheme
 
-private val StartGreen = Color(0xFF22C55E)
+private val StartGreen = Color(0xFF0BDA51)
 private val StartCyan = Color(0xFF22D3EE)
 private val StartCardDark = Color(0xFF111820)
 
@@ -49,7 +49,7 @@ fun StartExerciseCard(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .height(218.dp),
+            .height(198.dp),
         shape = RoundedCornerShape(20.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         colors = CardDefaults.cardColors(containerColor = Color.Transparent)
@@ -69,9 +69,9 @@ fun StartExerciseCard(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                    .padding(horizontal = 20.dp, vertical = 14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterVertically)
+                verticalArrangement = Arrangement.spacedBy(11.dp, Alignment.CenterVertically)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -110,9 +110,9 @@ private fun RunButton(
 ) {
     Box(
         modifier = modifier
-            .size(92.dp)
-            .background(StartGreen.copy(alpha = 0.14f), CircleShape)
-            .padding(7.dp)
+            .size(88.dp)
+            .background(StartGreen.copy(alpha = 0.15f), CircleShape)
+            .padding(6.dp)
             .background(
                 brush = Brush.linearGradient(
                     colors = listOf(StartGreen, Color(0xFF84CC16)),
@@ -124,19 +124,23 @@ private fun RunButton(
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
             Text(
                 text = "▶",
                 color = Color.White,
-                fontSize = 26.sp,
-                lineHeight = 28.sp,
+                fontSize = 20.sp,
+                lineHeight = 22.sp,
                 fontWeight = FontWeight.Bold
             )
             Text(
                 text = "开始",
                 color = Color.White,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Black
+                fontSize = 14.sp,
+                lineHeight = 16.sp,
+                fontWeight = FontWeight.SemiBold
             )
         }
     }
