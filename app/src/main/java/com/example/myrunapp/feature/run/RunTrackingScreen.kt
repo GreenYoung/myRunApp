@@ -204,27 +204,27 @@ private fun RunningStatsPanel(
         modifier = modifier
             .clip(RoundedCornerShape(26.dp))
             .background(RunHudBackground)
-            .padding(horizontal = 22.dp, vertical = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+            .padding(horizontal = 18.dp, vertical = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         RunningPanelHeader(isPaused = uiState.isPaused)
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(18.dp)
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             RunningMetricItem(
                 value = String.format(java.util.Locale.US, "%.2f", uiState.distanceKm),
                 unit = "km",
                 label = "距离",
-                valueFontSize = 35,
-                unitFontSize = 17,
+                valueFontSize = 31,
+                unitFontSize = 15,
                 modifier = Modifier.weight(1f)
             )
             RunningMetricItem(
                 value = formatRunClock(uiState.durationSeconds),
                 unit = "",
                 label = "时长",
-                valueFontSize = 32,
+                valueFontSize = 27,
                 unitFontSize = 0,
                 useTabularNumbers = true,
                 modifier = Modifier.weight(1f)
@@ -232,23 +232,23 @@ private fun RunningStatsPanel(
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(18.dp)
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             val paceValue = formatHudPaceValue(uiState.averagePaceText)
             RunningMetricItem(
                 value = paceValue.first,
                 unit = paceValue.second,
                 label = "平均配速",
-                valueFontSize = 31,
-                unitFontSize = 15,
+                valueFontSize = 27,
+                unitFontSize = 13,
                 modifier = Modifier.weight(1f)
             )
             RunningMetricItem(
                 value = uiState.caloriesKcal.toString(),
                 unit = "kcal",
                 label = "消耗",
-                valueFontSize = 31,
-                unitFontSize = 16,
+                valueFontSize = 28,
+                unitFontSize = 14,
                 modifier = Modifier.weight(1f)
             )
         }
@@ -304,10 +304,13 @@ private fun RunningMetricItem(
 ) {
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(5.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
         horizontalAlignment = Alignment.Start
     ) {
-        Row(verticalAlignment = Alignment.Bottom) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Bottom
+        ) {
             Text(
                 text = value,
                 color = Color.White,
@@ -315,6 +318,7 @@ private fun RunningMetricItem(
                 lineHeight = (valueFontSize + 3).sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
+                softWrap = false,
                 style = TextStyle(fontFeatureSettings = if (useTabularNumbers) "tnum" else null)
             )
             if (unit.isNotEmpty()) {
@@ -325,6 +329,7 @@ private fun RunningMetricItem(
                     lineHeight = (unitFontSize + 2).sp,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
+                    softWrap = false,
                     modifier = Modifier.padding(bottom = 4.dp)
                 )
             }

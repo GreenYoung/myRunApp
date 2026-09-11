@@ -322,15 +322,16 @@ private fun ExerciseStatsEntryButton(
     Box(
         modifier = modifier
             .height(36.dp)
-            .background(Color(0x66151E26), RoundedCornerShape(12.dp))
+            .background(ExerciseGreen.copy(alpha = 0.13f), RoundedCornerShape(12.dp))
+            .border(1.dp, ExerciseGreen.copy(alpha = 0.34f), RoundedCornerShape(12.dp))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = text,
-            color = AppSecondaryText,
+            color = ExerciseGreen,
             fontSize = 13.sp,
-            fontWeight = FontWeight.Medium,
+            fontWeight = FontWeight.SemiBold,
             maxLines = 1
         )
     }
@@ -346,9 +347,15 @@ private fun ExerciseTotalMileageHeader(detail: ExerciseDetailUiState) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 10.dp, bottom = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+            .padding(top = 6.dp, bottom = 0.dp),
+        verticalArrangement = Arrangement.spacedBy(1.dp)
     ) {
+        Text(
+            text = "累计里程",
+            color = AppSecondaryText,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium
+        )
         Row(verticalAlignment = Alignment.Bottom) {
             Text(
                 text = formatDistance(detail.totalDistanceKm),
@@ -366,12 +373,6 @@ private fun ExerciseTotalMileageHeader(detail: ExerciseDetailUiState) {
                 modifier = Modifier.padding(bottom = 6.dp)
             )
         }
-        Text(
-            text = "累计里程",
-            color = AppSecondaryText,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium
-        )
     }
 }
 
@@ -383,7 +384,7 @@ private fun ExerciseStatsSummary(detail: ExerciseDetailUiState) {
 
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             HistoryStatItem("累计运动", "${records.size} 次", Modifier.weight(1f))
@@ -406,7 +407,7 @@ private fun HistoryStatItem(
 ) {
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(5.dp)
+        verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         Text(
             text = label,
@@ -417,10 +418,11 @@ private fun HistoryStatItem(
         Text(
             text = value,
             color = Color.White,
-            fontSize = 20.sp,
-            lineHeight = 23.sp,
+            fontSize = 18.sp,
+            lineHeight = 20.sp,
             fontWeight = FontWeight.Bold,
-            maxLines = 1
+            maxLines = 1,
+            softWrap = false
         )
     }
 }
@@ -1002,7 +1004,7 @@ private fun BasicExerciseRecordItem(
         ) {
             RecordValue(record.distanceText, Modifier.weight(1.05f))
             RecordValue(record.durationText, Modifier.weight(0.9f))
-            RecordValue(record.paceText, Modifier.weight(1.18f))
+            RecordPaceValue(record.paceText, Modifier.weight(1.34f))
             RecordValue(record.caloriesText, Modifier.weight(1.05f))
         }
         HorizontalDivider(color = Color.White.copy(alpha = 0.10f), thickness = 1.dp)
@@ -1075,7 +1077,7 @@ private fun OutdoorExerciseRecordItem(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    RecordValue(record.paceText, Modifier.weight(1f))
+                    RecordPaceValue(record.paceText, Modifier.weight(1f))
                     RecordValue(record.caloriesText, Modifier.weight(1f))
                 }
             }
@@ -1368,7 +1370,48 @@ private fun DeleteExerciseRecordDialog(
 
 @Composable
 private fun RecordValue(text: String, modifier: Modifier = Modifier) {
-    Text(text = text, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, modifier = modifier)
+    Text(
+        text = text,
+        color = Color.White,
+        fontSize = 13.sp,
+        lineHeight = 16.sp,
+        fontWeight = FontWeight.Medium,
+        maxLines = 1,
+        softWrap = false,
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun RecordPaceValue(
+    paceText: String,
+    modifier: Modifier = Modifier
+) {
+    PaceValueText(
+        paceText = paceText,
+        fontSize = 12,
+        fontWeight = FontWeight.Medium,
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun PaceValueText(
+    paceText: String,
+    fontSize: Int,
+    fontWeight: FontWeight,
+    modifier: Modifier = Modifier
+) {
+    Text(
+        text = paceText,
+        color = Color.White,
+        fontSize = fontSize.sp,
+        lineHeight = (fontSize + 3).sp,
+        fontWeight = fontWeight,
+        maxLines = 1,
+        softWrap = false,
+        modifier = modifier
+    )
 }
 
 @Composable

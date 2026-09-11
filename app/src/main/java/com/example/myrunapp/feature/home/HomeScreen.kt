@@ -56,12 +56,6 @@ fun HomeScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         HomeHeader()
-        StartExerciseCard(
-            onStartClick = onStartOutdoorRunClick,
-            onOutdoorClick = onStartOutdoorRunClick,
-            onTreadmillClick = onExerciseClick,
-            onFreeRunClick = onExerciseClick
-        )
         ExerciseSummaryCard(
             uiState = exerciseUiState.summary,
             onClick = onExerciseClick
@@ -69,6 +63,12 @@ fun HomeScreen(
         WeightSummaryCard(
             uiState = weightUiState.weightCard,
             onClick = onWeightClick
+        )
+        StartExerciseCard(
+            onStartClick = onStartOutdoorRunClick,
+            onOutdoorClick = onStartOutdoorRunClick,
+            onTreadmillClick = onExerciseClick,
+            onFreeRunClick = onExerciseClick
         )
     }
 }

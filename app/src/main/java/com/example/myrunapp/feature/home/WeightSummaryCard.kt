@@ -111,11 +111,12 @@ private fun WeightCardHeader(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            Text("●", color = ExerciseHudGreen, fontSize = 13.sp, lineHeight = 13.sp, fontWeight = FontWeight.Bold)
             Text(
-                text = if (hasTodayWeight) "✓ 今日已记录" else "今天还未记录",
-                color = if (hasTodayWeight) Accent else AppSecondaryText,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium
+                text = if (hasTodayWeight) "今天已记录" else "今天未记录",
+                color = if (hasTodayWeight) ExerciseHudUnit else AppSecondaryText,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold
             )
         }
     }

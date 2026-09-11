@@ -17,16 +17,17 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -77,7 +78,7 @@ private val DetailGreen = Color(0xFF22C55E)
 private val DetailRed = Color(0xFFF87171)
 private val CardDark = Color(0xFF111820)
 private val CardLight = Color(0xFF151E26)
-private val RecordRowMinHeight = 64.dp
+private val RecordRowMinHeight = 38.dp
 
 @Composable
 fun WeightRoute(
@@ -138,28 +139,35 @@ fun WeightDetailScreen(
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(start = 23.dp, top = PageTopSpacing, end = 23.dp, bottom = 28.dp),
+                .padding(start = 23.dp, end = 23.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                top = PageTopSpacing,
+                bottom = 28.dp
+            ),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            WeightDetailTopBar(onBack = onBack)
-            LatestWeightCard(uiState.weightDetail)
-            WeightOverviewCard(uiState.weightDetail)
-            WeightExerciseCorrelationCard(uiState.weightDetail.exerciseCorrelation)
-            WeightTrendEntryCard(uiState = uiState.weightDetail, onClick = onTrendClick)
-            RecentWeightRecords(
-                records = uiState.weightDetail.recentRecords,
-                onEditRecord = onEditRecord,
-                onDeleteRecord = onDeleteRecord
-            )
-            WeightActionSection(
-                targetWeight = uiState.weightDetail.targetWeight,
-                onTargetClick = onTargetClick,
-                onRecordClick = onRecordClick
-            )
+            item { WeightDetailTopBar(onBack = onBack) }
+            item { LatestWeightCard(uiState.weightDetail) }
+            item { WeightOverviewCard(uiState.weightDetail) }
+            item { WeightExerciseCorrelationCard(uiState.weightDetail.exerciseCorrelation) }
+            item { WeightTrendEntryCard(uiState = uiState.weightDetail, onClick = onTrendClick) }
+            item {
+                RecentWeightRecords(
+                    records = uiState.weightDetail.recentRecords,
+                    onEditRecord = onEditRecord,
+                    onDeleteRecord = onDeleteRecord
+                )
+            }
+            item {
+                WeightActionSection(
+                    targetWeight = uiState.weightDetail.targetWeight,
+                    onTargetClick = onTargetClick,
+                    onRecordClick = onRecordClick
+                )
+            }
         }
 
         if (uiState.isRecordDialogVisible) {
@@ -493,14 +501,24 @@ private fun RecentWeightRecords(
     var expandedDate by remember { mutableStateOf<String?>(null) }
 
     DetailCard {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("体重记录", color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = "体重记录",
+                color = Color.White,
+                fontSize = 16.sp,
+                lineHeight = 19.sp,
+                fontWeight = FontWeight.Bold
+            )
             if (records.isEmpty()) {
                 Text("暂无记录", color = AppSecondaryText, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
                 return@Column
             }
-            Column(modifier = Modifier.fillMaxWidth()) {
-                records.forEach { record ->
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 240.dp)
+            ) {
+                items(records, key = { it.date }) { record ->
                     WeightRecordRow(
                         record = record,
                         expanded = expandedDate == record.date,
@@ -562,8 +580,8 @@ private fun WeightRecordRow(
                 onLongClick = onLongClick
             )
             .defaultMinSize(minHeight = RecordRowMinHeight)
-            .padding(vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+            .padding(vertical = 0.dp),
+        verticalArrangement = if (expanded) Arrangement.spacedBy(6.dp) else Arrangement.Center
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -574,13 +592,17 @@ private fun WeightRecordRow(
                 text = record.date,
                 modifier = Modifier.weight(1.45f),
                 color = AppSecondaryText,
-                style = MaterialTheme.typography.bodyMedium,
+                fontSize = 13.sp,
+                lineHeight = 16.sp,
+                fontWeight = FontWeight.Medium,
                 maxLines = 1
             )
             Text(
                 text = "${formatWeight(record.weightKg)} kg",
                 modifier = Modifier.weight(1f),
                 color = Color.White,
+                fontSize = 14.sp,
+                lineHeight = 17.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1
             )
@@ -588,31 +610,20 @@ private fun WeightRecordRow(
                 text = record.previousChange.toArrowChangeText(unit = false),
                 modifier = Modifier.weight(0.85f),
                 color = record.previousChange.toChangeColor(),
+                fontSize = 13.sp,
+                lineHeight = 16.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1
             )
         }
-        record.note?.takeIf { it.isNotBlank() }?.let { note ->
-            Text(
-                text = note,
-                color = AppSecondaryText,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 1
-            )
-        }
         if (expanded) {
-            WeightRecordExpandedContent(
-                note = record.note,
-                onEdit = onEdit,
-                onDelete = onDelete
-            )
+            WeightRecordExpandedContent(onEdit = onEdit, onDelete = onDelete)
         }
     }
 }
 
 @Composable
 private fun WeightRecordExpandedContent(
-    note: String?,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -620,15 +631,8 @@ private fun WeightRecordExpandedContent(
         modifier = Modifier
             .fillMaxWidth()
             .background(Color.White.copy(alpha = 0.04f), RoundedCornerShape(12.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+            .padding(horizontal = 10.dp, vertical = 8.dp)
     ) {
-        Text(
-            text = note?.takeIf { it.isNotBlank() }?.let { "备注：$it" } ?: "暂无备注",
-            color = AppSecondaryText,
-            style = MaterialTheme.typography.bodySmall,
-            maxLines = 2
-        )
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
