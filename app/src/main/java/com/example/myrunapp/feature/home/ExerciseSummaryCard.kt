@@ -41,10 +41,10 @@ import com.example.myrunapp.feature.exercise.formatCalories
 import com.example.myrunapp.feature.exercise.formatDistance
 
 private val ExerciseGreen = Color(0xFF22C55E)
-private val ExerciseHudGreen = Color(0xFF0BDA51)
+val ExerciseHudGreen = Color(0xFF0BDA51)
 private val ExerciseFire = Color(0xFFFF654F)
 private val ExerciseCardBackground = Color(0xFF101820)
-private val ExerciseHudUnit = Color(0xFFB6BDC5)
+val ExerciseHudUnit = Color(0xFFB6BDC5)
 private val ExerciseHudLabel = Color(0xFF7F8893)
 private val MissingRecordAction = Color(0xFF86EFAC)
 

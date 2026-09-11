@@ -56,7 +56,6 @@ class WeightViewModel(
         }
         val recentRecords = records
             .sortedByDescending { it.date }
-            .take(5)
             .map { record ->
                 val previousRecord = records
                     .filter { it.date < record.date }

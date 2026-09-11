@@ -30,6 +30,7 @@ import com.example.myrunapp.feature.weight.WeightRoute
 import com.example.myrunapp.feature.weight.WeightTrendRoute
 import com.example.myrunapp.feature.weight.WeightViewModel
 import com.example.myrunapp.feature.weight.WeightViewModelFactory
+import com.example.myrunapp.ui.components.SwipeBackContainer
 import com.example.myrunapp.ui.theme.MyRunAppTheme
 
 private enum class AppDestination {
@@ -80,66 +81,90 @@ class MainActivity : ComponentActivity() {
                 var selectedRunSessionId by rememberSaveable { mutableStateOf<Long?>(null) }
                 var selectedExerciseRecordId by rememberSaveable { mutableStateOf<Long?>(null) }
                 var selectedExerciseStatsPeriod by rememberSaveable { mutableStateOf(ExerciseStatsPeriod.WEEK) }
+                val swipeBackEnabled = destination in setOf(
+                    AppDestination.Exercise,
+                    AppDestination.Weight,
+                    AppDestination.WeightTrend,
+                    AppDestination.ExerciseRecordDetail,
+                    AppDestination.ExerciseStatsDetail
+                )
+                fun navigateBack() {
+                    destination = when (destination) {
+                        AppDestination.Exercise,
+                        AppDestination.Weight,
+                        AppDestination.RunTracking -> AppDestination.Home
+                        AppDestination.WeightTrend -> AppDestination.Weight
+                        AppDestination.RunTrackDetail,
+                        AppDestination.ExerciseRecordDetail,
+                        AppDestination.ExerciseStatsDetail -> AppDestination.Exercise
+                        AppDestination.Home -> AppDestination.Home
+                    }
+                }
 
-                when (destination) {
-                    AppDestination.Home -> HomeScreen(
-                        weightUiState = weightUiState,
-                        exerciseUiState = exerciseUiState,
-                        onExerciseClick = { destination = AppDestination.Exercise },
-                        onStartOutdoorRunClick = { destination = AppDestination.RunTracking },
-                        onWeightClick = { destination = AppDestination.Weight }
-                    )
+                SwipeBackContainer(
+                    enabled = swipeBackEnabled,
+                    onBack = { navigateBack() }
+                ) {
+                    when (destination) {
+                        AppDestination.Home -> HomeScreen(
+                            weightUiState = weightUiState,
+                            exerciseUiState = exerciseUiState,
+                            onExerciseClick = { destination = AppDestination.Exercise },
+                            onStartOutdoorRunClick = { destination = AppDestination.RunTracking },
+                            onWeightClick = { destination = AppDestination.Weight }
+                        )
 
-                    AppDestination.Exercise -> ExerciseRoute(
-                        viewModel = exerciseViewModel,
-                        onBack = { destination = AppDestination.Home },
-                        onRecordClick = { recordId ->
-                            selectedExerciseRecordId = recordId
-                            destination = AppDestination.ExerciseRecordDetail
-                        },
-                        onStatsPeriodClick = { period ->
-                            selectedExerciseStatsPeriod = period
-                            destination = AppDestination.ExerciseStatsDetail
-                        }
-                    )
+                        AppDestination.Exercise -> ExerciseRoute(
+                            viewModel = exerciseViewModel,
+                            onBack = { navigateBack() },
+                            onRecordClick = { recordId ->
+                                selectedExerciseRecordId = recordId
+                                destination = AppDestination.ExerciseRecordDetail
+                            },
+                            onStatsPeriodClick = { period ->
+                                selectedExerciseStatsPeriod = period
+                                destination = AppDestination.ExerciseStatsDetail
+                            }
+                        )
 
-                    AppDestination.Weight -> WeightRoute(
-                        viewModel = weightViewModel,
-                        onBack = { destination = AppDestination.Home },
-                        onTrendClick = { destination = AppDestination.WeightTrend }
-                    )
+                        AppDestination.Weight -> WeightRoute(
+                            viewModel = weightViewModel,
+                            onBack = { navigateBack() },
+                            onTrendClick = { destination = AppDestination.WeightTrend }
+                        )
 
-                    AppDestination.WeightTrend -> WeightTrendRoute(
-                        viewModel = weightViewModel,
-                        onBack = { destination = AppDestination.Weight }
-                    )
+                        AppDestination.WeightTrend -> WeightTrendRoute(
+                            viewModel = weightViewModel,
+                            onBack = { navigateBack() }
+                        )
 
-                    AppDestination.RunTracking -> RunTrackingRoute(
-                        viewModel = runTrackingViewModel,
-                        onBack = { destination = AppDestination.Home },
-                        onSaved = { sessionId ->
-                            selectedRunSessionId = sessionId
-                            destination = AppDestination.RunTrackDetail
-                        }
-                    )
+                        AppDestination.RunTracking -> RunTrackingRoute(
+                            viewModel = runTrackingViewModel,
+                            onBack = { navigateBack() },
+                            onSaved = { sessionId ->
+                                selectedRunSessionId = sessionId
+                                destination = AppDestination.RunTrackDetail
+                            }
+                        )
 
-                    AppDestination.RunTrackDetail -> RunTrackDetailRoute(
-                        viewModel = runTrackingViewModel,
-                        sessionId = selectedRunSessionId ?: 0L,
-                        onBack = { destination = AppDestination.Exercise }
-                    )
+                        AppDestination.RunTrackDetail -> RunTrackDetailRoute(
+                            viewModel = runTrackingViewModel,
+                            sessionId = selectedRunSessionId ?: 0L,
+                            onBack = { navigateBack() }
+                        )
 
-                    AppDestination.ExerciseRecordDetail -> ExerciseRecordDetailRoute(
-                        viewModel = exerciseViewModel,
-                        recordId = selectedExerciseRecordId ?: 0L,
-                        onBack = { destination = AppDestination.Exercise }
-                    )
+                        AppDestination.ExerciseRecordDetail -> ExerciseRecordDetailRoute(
+                            viewModel = exerciseViewModel,
+                            recordId = selectedExerciseRecordId ?: 0L,
+                            onBack = { navigateBack() }
+                        )
 
-                    AppDestination.ExerciseStatsDetail -> ExerciseStatsDetailRoute(
-                        viewModel = exerciseViewModel,
-                        period = selectedExerciseStatsPeriod,
-                        onBack = { destination = AppDestination.Exercise }
-                    )
+                        AppDestination.ExerciseStatsDetail -> ExerciseStatsDetailRoute(
+                            viewModel = exerciseViewModel,
+                            period = selectedExerciseStatsPeriod,
+                            onBack = { navigateBack() }
+                        )
+                    }
                 }
             }
         }

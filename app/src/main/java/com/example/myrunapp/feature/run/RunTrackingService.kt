@@ -148,7 +148,7 @@ class RunTrackingService : Service() {
                 hasLocationPermission = true,
                 hasNotificationPermission = it.hasNotificationPermission,
                 isServiceRunning = true,
-                gpsStatusText = "等待 GPS 定位"
+                gpsStatusText = "正在校准起点"
             )
         }
         loadTrackingWeight()
@@ -344,7 +344,7 @@ class RunTrackingService : Service() {
             is LocationFilterResult.Pending -> {
                 logRejectedLocation(location, result.reason)
                 AppLogger.d(LogTags.TRACK, "pending point reason=${result.reason} ${location.toDebugText()}")
-                RunTrackingStateStore.update { it.copy(gpsStatusText = "正在确认 GPS 连续性") }
+                RunTrackingStateStore.update { it.copy(gpsStatusText = gpsPendingStatusText(result.reason)) }
             }
             is LocationFilterResult.Rejected -> {
                 logRejectedLocation(location, result.reason)
@@ -541,11 +541,23 @@ class RunTrackingService : Service() {
             LocationRejectReason.STALE_LOCATION -> "已忽略过旧定位"
             LocationRejectReason.TOO_CLOSE -> "已过滤静止漂移"
             LocationRejectReason.TOO_FREQUENT -> "GPS 点过密，已忽略"
+            LocationRejectReason.START_ANCHOR_CALIBRATING,
+            LocationRejectReason.START_ANCHOR_UNSTABLE -> "正在校准起点"
+            LocationRejectReason.EARLY_TRACK_GUARD -> "已过滤起步异常跳点"
             LocationRejectReason.IMPOSSIBLE_SPEED,
             LocationRejectReason.LARGE_JUMP,
             LocationRejectReason.SUSPECT_SPIKE -> "已过滤异常跳点"
             LocationRejectReason.MOCK_LOCATION -> "已忽略模拟定位"
             LocationRejectReason.INVALID_TIME -> "已忽略异常定位时间"
+        }
+    }
+
+    private fun gpsPendingStatusText(reason: LocationRejectReason): String {
+        return when (reason) {
+            LocationRejectReason.START_ANCHOR_CALIBRATING -> "正在校准起点"
+            LocationRejectReason.START_ANCHOR_UNSTABLE -> "起点定位不稳定"
+            LocationRejectReason.EARLY_TRACK_GUARD -> "正在确认起步轨迹"
+            else -> "正在确认 GPS 连续性"
         }
     }
 

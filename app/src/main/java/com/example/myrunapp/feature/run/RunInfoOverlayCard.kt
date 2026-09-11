@@ -72,8 +72,8 @@ fun RunInfoOverlayContainer(
                 .background(RunInfoOverlayBase)
         ) {
             Column(
-                modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 content()
             }
@@ -123,7 +123,15 @@ fun RunInfoMetric(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
-        Text(metric.value, color = valueColor, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        Text(
+            text = metric.value,
+            color = valueColor,
+            fontSize = 19.sp,
+            lineHeight = 22.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            softWrap = false
+        )
         Text(metric.label, color = AppSecondaryText, fontWeight = FontWeight.Medium, fontSize = 13.sp)
     }
 }

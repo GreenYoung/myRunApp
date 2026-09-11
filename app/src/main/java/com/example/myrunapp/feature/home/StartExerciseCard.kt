@@ -49,7 +49,7 @@ fun StartExerciseCard(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .height(198.dp),
+            .height(170.dp),
         shape = RoundedCornerShape(20.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         colors = CardDefaults.cardColors(containerColor = Color.Transparent)
@@ -69,25 +69,10 @@ fun StartExerciseCard(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(11.dp, Alignment.CenterVertically)
+                verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
-                            text = "开始运动",
-                            color = Color.White,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
                 RunButton(onClick = onStartClick)
 
                 Row(
@@ -136,7 +121,7 @@ private fun RunButton(
                 fontWeight = FontWeight.Bold
             )
             Text(
-                text = "开始",
+                text = "开始运动",
                 color = Color.White,
                 fontSize = 14.sp,
                 lineHeight = 16.sp,

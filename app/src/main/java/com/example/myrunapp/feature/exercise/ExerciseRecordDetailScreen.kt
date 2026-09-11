@@ -21,22 +21,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.myrunapp.feature.run.AMapTrackPreview
-import com.example.myrunapp.feature.run.RunInfoMetricUiModel
-import com.example.myrunapp.feature.run.RunInfoOverlayCard
-import com.example.myrunapp.feature.run.formatRunInfoCalories
-import com.example.myrunapp.feature.run.formatRunInfoDistance
-import com.example.myrunapp.feature.run.formatRunInfoDuration
-import com.example.myrunapp.feature.run.formatRunInfoPace
 import com.example.myrunapp.feature.run.RunMapDisplayType
 import com.example.myrunapp.feature.run.RunMapTypeToggle
 import com.example.myrunapp.feature.run.RunTrackPointUiModel
+import com.example.myrunapp.feature.run.formatRunClock
 import com.example.myrunapp.ui.components.AppBackButton
 import com.example.myrunapp.ui.components.AppPageTopBar
 import com.example.myrunapp.ui.components.PageHorizontalPadding
@@ -46,6 +43,10 @@ import com.example.myrunapp.ui.theme.AppSecondaryText
 import com.example.myrunapp.ui.theme.MyRunAppTheme
 
 private val DetailCardDark = Color(0xFF111820)
+private val OutdoorRunHudBackground = Color(0xF5101820)
+private val OutdoorRunHudGreen = Color(0xFF0BDA51)
+private val OutdoorRunHudUnit = Color(0xFFB6BDC5)
+private val OutdoorRunHudLabel = Color(0xFF7F8893)
 
 @Composable
 fun ExerciseRecordDetailRoute(
@@ -128,16 +129,157 @@ private fun OutdoorRunInfoOverlayCard(
     record: ExerciseRecordUiModel,
     modifier: Modifier = Modifier
 ) {
-    RunInfoOverlayCard(
-        title = record.typeText,
-        dateText = formatExerciseInputDate(record.startTime),
-        firstRow = RunInfoMetricUiModel(formatRunInfoDistance(record.distanceKm), "距离") to
-            RunInfoMetricUiModel(formatRunInfoDuration(record.durationSeconds), "时长"),
-        secondRow = RunInfoMetricUiModel(formatRunInfoPace(record.paceText), "平均配速") to
-            RunInfoMetricUiModel(formatRunInfoCalories(record.caloriesText), "消耗"),
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(26.dp))
+            .background(OutdoorRunHudBackground)
+            .padding(horizontal = 18.dp, vertical = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        OutdoorRunInfoHeader(
+            title = "户外跑步",
+            dateText = formatExerciseInputDate(record.startTime)
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            OutdoorRunMetricItem(
+                value = formatDistance(record.distanceKm),
+                unit = "km",
+                label = "距离",
+                valueFontSize = 31,
+                unitFontSize = 15,
+                modifier = Modifier.weight(1f)
+            )
+            OutdoorRunMetricItem(
+                value = formatRunClock(record.durationSeconds),
+                unit = "",
+                label = "时长",
+                valueFontSize = 27,
+                unitFontSize = 0,
+                useTabularNumbers = true,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            val paceValue = record.paceText.toOutdoorRunPaceParts()
+            OutdoorRunMetricItem(
+                value = paceValue.first,
+                unit = paceValue.second,
+                label = "平均配速",
+                valueFontSize = 27,
+                unitFontSize = 13,
+                modifier = Modifier.weight(1f)
+            )
+            OutdoorRunMetricItem(
+                value = record.caloriesText.toCaloriesValueText(),
+                unit = "kcal",
+                label = "消耗",
+                valueFontSize = 28,
+                unitFontSize = 14,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun OutdoorRunInfoHeader(
+    title: String,
+    dateText: String
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = title,
+            color = Color.White,
+            fontSize = 21.sp,
+            lineHeight = 24.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            modifier = Modifier.weight(1f)
+        )
+        Row(
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "●",
+                color = OutdoorRunHudGreen,
+                fontSize = 13.sp,
+                lineHeight = 13.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = dateText,
+                color = OutdoorRunHudUnit,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun OutdoorRunMetricItem(
+    value: String,
+    unit: String,
+    label: String,
+    valueFontSize: Int,
+    unitFontSize: Int,
+    modifier: Modifier = Modifier,
+    useTabularNumbers: Boolean = false
+) {
+    Column(
         modifier = modifier,
-        metricValueColor = Color.White
-    )
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalAlignment = Alignment.Start
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Bottom
+        ) {
+            Text(
+                text = value,
+                color = Color.White,
+                fontSize = valueFontSize.sp,
+                lineHeight = (valueFontSize + 3).sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                softWrap = false,
+                style = TextStyle(fontFeatureSettings = if (useTabularNumbers) "tnum" else null)
+            )
+            if (unit.isNotEmpty()) {
+                Text(
+                    text = " $unit",
+                    color = OutdoorRunHudUnit,
+                    fontSize = unitFontSize.sp,
+                    lineHeight = (unitFontSize + 2).sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
+            }
+        }
+        Text(
+            text = label,
+            color = OutdoorRunHudLabel,
+            fontSize = 13.sp,
+            lineHeight = 15.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1
+        )
+    }
 }
 
 @Composable
@@ -236,9 +378,29 @@ private fun DetailMetric(value: String, label: String, modifier: Modifier = Modi
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
-        Text(value, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        Text(
+            text = value,
+            color = Color.White,
+            fontSize = 19.sp,
+            lineHeight = 22.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            softWrap = false
+        )
         Text(label, color = AppSecondaryText, fontWeight = FontWeight.Medium, fontSize = 13.sp)
     }
+}
+
+private fun String.toOutdoorRunPaceParts(): Pair<String, String> {
+    return if (endsWith("/km")) {
+        removeSuffix("/km") to "/km"
+    } else {
+        this to ""
+    }
+}
+
+private fun String.toCaloriesValueText(): String {
+    return substringBefore(" ").ifBlank { filter { it.isDigit() }.ifBlank { "0" } }
 }
 
 @Preview(showBackground = true)
