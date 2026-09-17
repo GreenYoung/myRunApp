@@ -1,6 +1,7 @@
 package com.example.myrunapp.feature.exercise
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +23,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -48,13 +52,24 @@ fun ExerciseStatsDetailRoute(
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val uiState by viewModel.observeStatsDetail(period).collectAsState(
-        initial = ExerciseStatsDetailUiState(period = period, title = period.titleText)
+    var periodOffset by rememberSaveable(period) { mutableIntStateOf(0) }
+    val uiState by viewModel.observeStatsDetail(period, periodOffset).collectAsState(
+        initial = ExerciseStatsDetailUiState(
+            period = period,
+            periodOffset = periodOffset,
+            title = period.titleText
+        )
     )
 
     ExerciseStatsDetailScreen(
         uiState = uiState,
         onBack = onBack,
+        onPreviousPeriod = { periodOffset -= 1 },
+        onNextPeriod = {
+            if (periodOffset < 0) {
+                periodOffset += 1
+            }
+        },
         modifier = modifier
     )
 }
@@ -63,6 +78,8 @@ fun ExerciseStatsDetailRoute(
 fun ExerciseStatsDetailScreen(
     uiState: ExerciseStatsDetailUiState,
     onBack: () -> Unit,
+    onPreviousPeriod: () -> Unit,
+    onNextPeriod: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Scaffold(
@@ -93,14 +110,24 @@ fun ExerciseStatsDetailScreen(
                     onBackClick = onBack
                 )
             }
-            item { ExerciseStatsHero(uiState = uiState) }
+            item {
+                ExerciseStatsHero(
+                    uiState = uiState,
+                    onPreviousPeriod = onPreviousPeriod,
+                    onNextPeriod = onNextPeriod
+                )
+            }
             item { ExerciseStatsMetricCard(uiState = uiState) }
         }
     }
 }
 
 @Composable
-private fun ExerciseStatsHero(uiState: ExerciseStatsDetailUiState) {
+private fun ExerciseStatsHero(
+    uiState: ExerciseStatsDetailUiState,
+    onPreviousPeriod: () -> Unit,
+    onNextPeriod: () -> Unit
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
@@ -120,11 +147,12 @@ private fun ExerciseStatsHero(uiState: ExerciseStatsDetailUiState) {
                 .padding(22.dp)
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    text = uiState.rangeText,
-                    color = AppSecondaryText,
-                    fontSize = 13.sp,
-                    maxLines = 1
+                ExerciseStatsPeriodSwitcher(
+                    rangeText = uiState.rangeText,
+                    canGoPrevious = uiState.canGoPrevious,
+                    canGoNext = uiState.canGoNext,
+                    onPreviousPeriod = onPreviousPeriod,
+                    onNextPeriod = onNextPeriod
                 )
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(
@@ -151,6 +179,52 @@ private fun ExerciseStatsHero(uiState: ExerciseStatsDetailUiState) {
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun ExerciseStatsPeriodSwitcher(
+    rangeText: String,
+    canGoPrevious: Boolean,
+    canGoNext: Boolean,
+    onPreviousPeriod: () -> Unit,
+    onNextPeriod: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "‹",
+            color = if (canGoPrevious) StatsAccentGreen else AppSecondaryText.copy(alpha = 0.28f),
+            fontSize = 26.sp,
+            lineHeight = 26.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .weight(0.18f)
+                .clickable(enabled = canGoPrevious) { onPreviousPeriod() }
+        )
+        Text(
+            text = rangeText,
+            color = AppSecondaryText,
+            fontSize = 13.sp,
+            lineHeight = 16.sp,
+            maxLines = 1,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            text = "›",
+            color = if (canGoNext) StatsAccentGreen else AppSecondaryText.copy(alpha = 0.28f),
+            fontSize = 26.sp,
+            lineHeight = 26.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .weight(0.18f)
+                .clickable(enabled = canGoNext) { onNextPeriod() }
+        )
     }
 }
 

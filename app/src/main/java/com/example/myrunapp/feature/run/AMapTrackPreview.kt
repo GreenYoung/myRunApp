@@ -82,20 +82,19 @@ fun AMapTrackPreview(
         modifier = modifier,
         factory = { mapView },
         update = { view ->
-            view.getMapAsyn { map ->
-                map.configureSportTrackUi(mapDisplayType)
-                AppLogger.d(
-                    LogTags.MAP,
-                    "render track preview points=${validPoints.size} mapType=${mapDisplayType.label}"
-                )
-                map.drawSportTrack(
-                    context = context,
-                    points = validPoints,
-                    endLabel = "END"
-                )
-                view.post {
-                    map.moveToSportTrack(validPoints)
-                }
+            val map = view.map
+            map.configureSportTrackUi(mapDisplayType)
+            AppLogger.d(
+                LogTags.MAP,
+                "render track preview points=${validPoints.size} mapType=${mapDisplayType.label}"
+            )
+            map.drawSportTrack(
+                context = context,
+                points = validPoints,
+                endLabel = "END"
+            )
+            view.post {
+                map.moveToSportTrack(validPoints, mapDisplayType)
             }
         }
     )

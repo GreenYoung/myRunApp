@@ -27,7 +27,6 @@ import com.amap.api.location.AMapLocation
 import com.amap.api.location.AMapLocationClient
 import com.amap.api.location.AMapLocationClientOption
 import com.amap.api.maps.AMap
-import com.amap.api.maps.CameraUpdateFactory
 import com.amap.api.maps.LocationSource
 import com.amap.api.maps.MapView
 import com.amap.api.maps.model.BitmapDescriptorFactory
@@ -40,7 +39,6 @@ import kotlin.math.abs
 import kotlin.math.roundToLong
 
 private val RunTrackingMapFallback = Color(0xFF111820)
-private const val RoadLevelZoom = 18f
 private const val RoadLevelAccuracyMeters = 30f
 private const val MaxMapDisplayAccuracyMeters = 80f
 private const val StationaryDriftDistanceMeters = 8f
@@ -52,6 +50,8 @@ fun AMapRunTrackingMap(
     isTracking: Boolean,
     hasLocationPermission: Boolean,
     mapDisplayType: RunMapDisplayType = RunMapDisplayType.Normal,
+    autoFollow: Boolean = true,
+    onMapTouched: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val validPoints = remember(points) { points.filterValidRunMapPoints() }
@@ -73,7 +73,7 @@ fun AMapRunTrackingMap(
             (location.latLng.longitude * 1_000_000).roundToLong()
     } ?: 0L
     val finalRenderSignature = 31 * (31 * renderSignature + fallbackLocationSignature) + mapDisplayType.ordinal
-    val shouldFollowNativeLocation = validPoints.size < 2
+    val shouldFollowNativeLocation = autoFollow && validPoints.size < 2
     val locationSource = remember(context, isTracking) {
         RunMapLocationSource(
             appContext = context.applicationContext,
@@ -131,7 +131,7 @@ fun AMapRunTrackingMap(
         }
     }
 
-    LaunchedEffect(mapView, locationSource, hasLocationPermission, shouldFollowNativeLocation, mapDisplayType) {
+    LaunchedEffect(mapView, locationSource, hasLocationPermission, shouldFollowNativeLocation, mapDisplayType, onMapTouched) {
         if (mapConfigured) {
             AppLogger.d(
                 LogTags.MAP,
@@ -141,21 +141,26 @@ fun AMapRunTrackingMap(
         }
         AppLogger.d(
             LogTags.MAP,
-            "request tracking map async configure hasPermission=$hasLocationPermission " +
+            "request tracking map configure hasPermission=$hasLocationPermission " +
                 "followNative=$shouldFollowNativeLocation mapType=${mapDisplayType.label}"
         )
-        mapView.getMapAsyn { map ->
-            configuredMap = map
-            map.configureSportTrackUi(mapDisplayType)
-            map.configureNativeMyLocation(context, locationSource, hasLocationPermission)
-            map.configureRoadLevelNativeLocationZoom(shouldFollowNativeLocation)
-            mapConfigured = true
-            AppLogger.d(
-                LogTags.MAP,
-                "tracking map configured hasPermission=$hasLocationPermission " +
-                    "followNative=$shouldFollowNativeLocation mapType=${mapDisplayType.label}"
-            )
+        val map = mapView.map
+        configuredMap = map
+        map.configureSportTrackUi(mapDisplayType)
+        map.setOnMapTouchListener {
+            if (autoFollow) {
+                AppLogger.d(LogTags.MAP, "map touched by user, disable auto follow")
+            }
+            onMapTouched()
         }
+        map.configureNativeMyLocation(context, locationSource, hasLocationPermission)
+        map.configureRoadLevelNativeLocationZoom(shouldFollowNativeLocation, mapDisplayType)
+        mapConfigured = true
+        AppLogger.d(
+            LogTags.MAP,
+            "tracking map configured hasPermission=$hasLocationPermission " +
+                "followNative=$shouldFollowNativeLocation mapType=${mapDisplayType.label}"
+        )
     }
 
     LaunchedEffect(mapConfigured, locationSource, hasLocationPermission) {
@@ -187,6 +192,8 @@ fun AMapRunTrackingMap(
             mapView = mapView,
             points = validPoints,
             isTracking = isTracking,
+            autoFollow = autoFollow,
+            mapDisplayType = mapDisplayType,
             fallbackMapLocation = fallbackMapLocation
         )
     }
@@ -203,6 +210,8 @@ private fun AMap.renderRunTrackingTrack(
     mapView: MapView,
     points: List<RunTrackPointUiModel>,
     isTracking: Boolean,
+    autoFollow: Boolean,
+    mapDisplayType: RunMapDisplayType,
     fallbackMapLocation: RunMapLocation?
 ) {
     AppLogger.d(
@@ -214,37 +223,48 @@ private fun AMap.renderRunTrackingTrack(
         points = points,
         endLabel = if (isTracking) "LIVE" else "END",
         showCurrentAsEnd = isTracking,
+        splitRenderGaps = true,
         currentLocation = fallbackMapLocation
     )
+    if (!autoFollow) {
+        AppLogger.d(LogTags.MAP, "skip camera move because auto follow is disabled")
+        return
+    }
     mapView.post {
         val latestPoint = points.lastOrNull()?.toAmapLatLng()
         val latestTrackPoint = points.lastOrNull()
         when {
             latestPoint != null && latestTrackPoint.isReliableForRoadLevel() -> {
+                val cameraStyle = mapDisplayType.cameraStyle()
                 AppLogger.d(
                     LogTags.MAP,
-                    "move camera to latest reliable track point points=${points.size} zoom=$RoadLevelZoom lat=${latestPoint.latitude} lon=${latestPoint.longitude}"
+                    "move camera to latest reliable track point points=${points.size} zoom=${cameraStyle.zoom} " +
+                        "tilt=${cameraStyle.tilt} mapType=${mapDisplayType.label} lat=${latestPoint.latitude} lon=${latestPoint.longitude}"
                 )
-                moveCamera(CameraUpdateFactory.newLatLngZoom(latestPoint, RoadLevelZoom))
+                moveToRoadLevel(latestPoint, mapDisplayType)
             }
             latestPoint != null -> {
+                val cameraStyle = mapDisplayType.cameraStyle()
                 AppLogger.d(
                     LogTags.MAP,
                     "move camera to latest weak track point points=${points.size} accuracy=${latestTrackPoint?.accuracyMeters} " +
-                        "zoom=$RoadLevelZoom lat=${latestPoint.latitude} lon=${latestPoint.longitude}"
+                        "zoom=${cameraStyle.zoom} tilt=${cameraStyle.tilt} mapType=${mapDisplayType.label} " +
+                        "lat=${latestPoint.latitude} lon=${latestPoint.longitude}"
                 )
-                moveCamera(CameraUpdateFactory.newLatLngZoom(latestPoint, RoadLevelZoom))
+                moveToRoadLevel(latestPoint, mapDisplayType)
             }
             fallbackMapLocation != null && points.size < 2 -> {
+                val cameraStyle = mapDisplayType.cameraStyle()
                 AppLogger.d(
                     LogTags.MAP,
                     "move camera to fallback location roadReliable=${fallbackMapLocation.isRoadLevelReliable} " +
-                        "accuracy=${fallbackMapLocation.accuracyMeters} zoom=$RoadLevelZoom " +
+                        "accuracy=${fallbackMapLocation.accuracyMeters} zoom=${cameraStyle.zoom} " +
+                        "tilt=${cameraStyle.tilt} mapType=${mapDisplayType.label} " +
                         "lat=${fallbackMapLocation.latLng.latitude} lon=${fallbackMapLocation.latLng.longitude}"
                 )
-                moveToCurrentLocation(fallbackMapLocation)
+                moveToCurrentLocation(fallbackMapLocation, mapDisplayType)
                 mapView.postDelayed(
-                    { moveToCurrentLocation(fallbackMapLocation) },
+                    { moveToCurrentLocation(fallbackMapLocation, mapDisplayType) },
                     350L
                 )
             }
@@ -295,7 +315,10 @@ private fun AMap.configureNativeMyLocation(
     setMyLocationEnabled(true)
 }
 
-private fun AMap.configureRoadLevelNativeLocationZoom(shouldFollowNativeLocation: Boolean) {
+private fun AMap.configureRoadLevelNativeLocationZoom(
+    shouldFollowNativeLocation: Boolean,
+    mapDisplayType: RunMapDisplayType
+) {
     if (!shouldFollowNativeLocation) {
         setOnMyLocationChangeListener(null)
         return
@@ -303,7 +326,7 @@ private fun AMap.configureRoadLevelNativeLocationZoom(shouldFollowNativeLocation
     setOnMyLocationChangeListener { location ->
         if (location.isUsableForRoadLevelZoom()) {
             val point = LatLng(location.latitude, location.longitude)
-            moveCamera(CameraUpdateFactory.newLatLngZoom(point, RoadLevelZoom))
+            moveToRoadLevel(point, mapDisplayType)
         }
     }
 }

@@ -24,6 +24,18 @@ fun currentExerciseTime(): String {
     return SimpleDateFormat(TIME_PATTERN, Locale.US).format(Calendar.getInstance().time)
 }
 
+fun exerciseDateWithCurrentClockTime(date: String): Long? {
+    val dateMillis = parseStartTime(date.trim().ifEmpty { todayExerciseDate() }) ?: return null
+    val now = Calendar.getInstance()
+    return Calendar.getInstance().apply {
+        timeInMillis = dateMillis
+        set(Calendar.HOUR_OF_DAY, now.get(Calendar.HOUR_OF_DAY))
+        set(Calendar.MINUTE, now.get(Calendar.MINUTE))
+        set(Calendar.SECOND, now.get(Calendar.SECOND))
+        set(Calendar.MILLISECOND, now.get(Calendar.MILLISECOND))
+    }.timeInMillis
+}
+
 fun formatDistance(value: Double): String {
     return String.format(Locale.US, "%.2f", value)
 }
@@ -386,17 +398,17 @@ fun buildExerciseRangeStats(
 
 fun buildExerciseStatsDetail(
     records: List<ExerciseRecordEntity>,
-    period: ExerciseStatsPeriod
+    period: ExerciseStatsPeriod,
+    periodOffset: Int = 0
 ): ExerciseStatsDetailUiState {
     val now = Calendar.getInstance()
     val nowMillis = now.timeInMillis
-    val startMillis = when (period) {
-        ExerciseStatsPeriod.WEEK -> startOfWeek(now).timeInMillis
-        ExerciseStatsPeriod.MONTH -> startOfMonth(now).timeInMillis
-        ExerciseStatsPeriod.YEAR -> startOfYear(now).timeInMillis
-    }
+    val safeOffset = periodOffset.coerceAtMost(0)
+    val periodRange = buildStatsPeriodRange(period, safeOffset, now)
+    val startMillis = periodRange.first
+    val endMillis = periodRange.second.coerceAtMost(nowMillis)
     val periodRecords = records.filter {
-        it.startTime >= startMillis && it.startTime <= nowMillis
+        it.startTime >= startMillis && it.startTime <= endMillis
     }
     val totalDistance = periodRecords.sumOf { it.distanceKm }
     val totalDurationSeconds = periodRecords.sumOf { it.durationSeconds }
@@ -410,8 +422,11 @@ fun buildExerciseStatsDetail(
 
     return ExerciseStatsDetailUiState(
         period = period,
+        periodOffset = safeOffset,
         title = period.statsTitle,
-        rangeText = buildStatsRangeText(startMillis, nowMillis),
+        rangeText = buildStatsRangeText(startMillis, endMillis),
+        canGoNext = safeOffset < 0,
+        canGoPrevious = true,
         totalDistanceKm = totalDistance,
         totalDurationSeconds = totalDurationSeconds,
         recordCount = recordCount,
@@ -422,6 +437,27 @@ fun buildExerciseStatsDetail(
         longestDistanceKm = periodRecords.maxOfOrNull { it.distanceKm } ?: 0.0,
         highestCaloriesKcal = periodRecords.maxOfOrNull { it.caloriesKcal } ?: 0
     )
+}
+
+private fun buildStatsPeriodRange(
+    period: ExerciseStatsPeriod,
+    offset: Int,
+    now: Calendar
+): Pair<Long, Long> {
+    val start = when (period) {
+        ExerciseStatsPeriod.WEEK -> startOfWeek(now).apply { add(Calendar.WEEK_OF_YEAR, offset) }
+        ExerciseStatsPeriod.MONTH -> startOfMonth(now).apply { add(Calendar.MONTH, offset) }
+        ExerciseStatsPeriod.YEAR -> startOfYear(now).apply { add(Calendar.YEAR, offset) }
+    }
+    val nextStart = Calendar.getInstance().apply {
+        timeInMillis = start.timeInMillis
+        when (period) {
+            ExerciseStatsPeriod.WEEK -> add(Calendar.WEEK_OF_YEAR, 1)
+            ExerciseStatsPeriod.MONTH -> add(Calendar.MONTH, 1)
+            ExerciseStatsPeriod.YEAR -> add(Calendar.YEAR, 1)
+        }
+    }
+    return start.timeInMillis to (nextStart.timeInMillis - 1L)
 }
 
 private fun progressOf(value: Double, goal: Double): Float {

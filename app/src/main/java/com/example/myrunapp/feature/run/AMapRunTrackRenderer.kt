@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.toArgb
 import com.amap.api.maps.AMap
 import com.amap.api.maps.CameraUpdateFactory
 import com.amap.api.maps.model.BitmapDescriptorFactory
+import com.amap.api.maps.model.CameraPosition
 import com.amap.api.maps.model.CircleOptions
 import com.amap.api.maps.model.LatLng
 import com.amap.api.maps.model.LatLngBounds
@@ -18,16 +19,26 @@ import com.amap.api.maps.model.MarkerOptions
 import com.amap.api.maps.model.PolylineOptions
 import kotlin.math.roundToInt
 
-private val TrackHalo = Color(0xB3FFFFFF)
-private val TrackGradientStart = Color(0xFF06B6D4)
-private val TrackGradientMiddle = Color(0xFF22C55E)
-private val TrackGradientEnd = Color(0xFFA3E635)
-private val MarkerHalo = Color(0x73FFFFFF)
+private val TrackGradientStart = Color(0xFF22C55E)
+private val TrackGradientMiddle = Color(0xFF06B6D4)
+private val TrackGradientEnd = Color(0xFFF97316)
+private val TrackSlow = Color(0xFF22C55E)
+private val TrackSteady = Color(0xFF06B6D4)
+private val TrackFast = Color(0xFFF97316)
 private val MarkerGreen = Color(0xFF22C55E)
 private val MarkerRed = Color(0xFFEF4444)
 private val MarkerWhite = Color(0xFFFFFFFF)
-private const val RoadZoom = 18f
-private const val TrackBoundsPadding = 44
+private const val RoadBearing = 0f
+private const val TrackBoundsPadding = 58
+private const val MaxRenderTrackPoints = 700
+private const val RenderGapMinTimeMs = 12_000L
+private const val RenderGapMinDistanceMeters = 45f
+private const val RenderGapMaxDistanceMeters = 70f
+
+internal data class RunMapCameraStyle(
+    val zoom: Float,
+    val tilt: Float
+)
 
 internal data class RunMapLocation(
     val latLng: LatLng,
@@ -39,13 +50,17 @@ internal data class RunMapLocation(
 internal fun AMap.configureSportTrackUi(mapDisplayType: RunMapDisplayType = RunMapDisplayType.Normal) {
     setMapType(mapDisplayType.amapType)
     setTrafficEnabled(false)
-    showBuildings(false)
+    showBuildings(mapDisplayType == RunMapDisplayType.Normal)
     uiSettings.setScrollGesturesEnabled(true)
     uiSettings.setZoomGesturesEnabled(true)
     uiSettings.setTiltGesturesEnabled(false)
     uiSettings.setRotateGesturesEnabled(false)
     uiSettings.setZoomInByScreenCenter(true)
     uiSettings.setGestureScaleByMapCenter(false)
+    uiSettings.setZoomControlsEnabled(false)
+    uiSettings.setCompassEnabled(false)
+    uiSettings.setMyLocationButtonEnabled(false)
+    uiSettings.setScaleControlsEnabled(true)
 }
 
 internal fun AMap.drawSportTrack(
@@ -53,6 +68,7 @@ internal fun AMap.drawSportTrack(
     points: List<RunTrackPointUiModel>,
     endLabel: String = "END",
     showCurrentAsEnd: Boolean = false,
+    splitRenderGaps: Boolean = false,
     currentLocation: RunMapLocation? = null
 ) {
     clear()
@@ -61,7 +77,10 @@ internal fun AMap.drawSportTrack(
         return
     }
 
-    val latLngs = points.map { it.toAmapLatLng() }
+    val sourceSegments = if (splitRenderGaps) points.splitByRenderGap() else listOf(points)
+    val renderSegments = sourceSegments.map { it.simplifyForMapRender() }
+    val displayPoints = renderSegments.flatten()
+    val latLngs = displayPoints.map { it.toAmapLatLng() }
     addMarker(
         MarkerOptions()
             .position(latLngs.first())
@@ -72,7 +91,7 @@ internal fun AMap.drawSportTrack(
     )
 
     if (latLngs.size >= 2) {
-        drawGradientPolyline(latLngs)
+        drawSpeedGradientPolylines(renderSegments)
         addKilometerMarkers(context, points)
     }
 
@@ -90,12 +109,15 @@ internal fun AMap.drawSportTrack(
     currentLocation?.let { drawCurrentLocationMarker(context, it) }
 }
 
-internal fun AMap.moveToSportTrack(points: List<RunTrackPointUiModel>) {
+internal fun AMap.moveToSportTrack(
+    points: List<RunTrackPointUiModel>,
+    mapDisplayType: RunMapDisplayType = RunMapDisplayType.Normal
+) {
     if (points.isEmpty()) return
 
     val latLngs = points.map { it.toAmapLatLng() }
     if (latLngs.size == 1) {
-        moveCamera(CameraUpdateFactory.newLatLngZoom(latLngs.first(), RoadZoom))
+        moveToRoadLevel(latLngs.first(), mapDisplayType)
         return
     }
 
@@ -104,15 +126,59 @@ internal fun AMap.moveToSportTrack(points: List<RunTrackPointUiModel>) {
     }.build()
     runCatching {
         moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, TrackBoundsPadding))
+        if (mapDisplayType == RunMapDisplayType.Satellite) {
+            moveToRoadLevel(latLngs.trackCenter(), mapDisplayType)
+        }
     }
 }
 
-internal fun AMap.moveToRoadLevel(point: LatLng) {
-    moveCamera(CameraUpdateFactory.newLatLngZoom(point, RoadZoom))
+internal fun AMap.moveToRoadLevel(
+    point: LatLng,
+    mapDisplayType: RunMapDisplayType = RunMapDisplayType.Normal
+) {
+    val cameraStyle = mapDisplayType.cameraStyle()
+    moveCamera(
+        CameraUpdateFactory.newCameraPosition(
+            CameraPosition.Builder()
+                .target(point)
+                .zoom(cameraStyle.zoom)
+                .tilt(cameraStyle.tilt)
+                .bearing(RoadBearing)
+                .build()
+        )
+    )
 }
 
-internal fun AMap.moveToCurrentLocation(location: RunMapLocation) {
-    moveCamera(CameraUpdateFactory.newLatLngZoom(location.latLng, RoadZoom))
+internal fun AMap.moveToCurrentLocation(
+    location: RunMapLocation,
+    mapDisplayType: RunMapDisplayType = RunMapDisplayType.Normal
+) {
+    moveToRoadLevel(location.latLng, mapDisplayType)
+}
+
+internal fun RunMapDisplayType.cameraStyle(): RunMapCameraStyle {
+    return when (this) {
+        RunMapDisplayType.Normal -> RunMapCameraStyle(zoom = 18.8f, tilt = 0f)
+        RunMapDisplayType.Night -> RunMapCameraStyle(zoom = 18.5f, tilt = 0f)
+        RunMapDisplayType.Satellite -> RunMapCameraStyle(zoom = 17.6f, tilt = 0f)
+    }
+}
+
+private fun List<LatLng>.trackCenter(): LatLng {
+    var minLatitude = first().latitude
+    var maxLatitude = first().latitude
+    var minLongitude = first().longitude
+    var maxLongitude = first().longitude
+    forEach { point ->
+        minLatitude = minOf(minLatitude, point.latitude)
+        maxLatitude = maxOf(maxLatitude, point.latitude)
+        minLongitude = minOf(minLongitude, point.longitude)
+        maxLongitude = maxOf(maxLongitude, point.longitude)
+    }
+    return LatLng(
+        (minLatitude + maxLatitude) / 2.0,
+        (minLongitude + maxLongitude) / 2.0
+    )
 }
 
 internal fun AMap.drawCurrentLocationMarker(context: Context, location: RunMapLocation) {
@@ -162,17 +228,93 @@ private fun AMap.drawGradientPolyline(latLngs: List<LatLng>) {
     addPolyline(
         PolylineOptions()
             .addAll(latLngs)
-            .width(18f)
-            .color(TrackHalo.toArgb())
-            .zIndex(8f)
-    )
-    addPolyline(
-        PolylineOptions()
-            .addAll(latLngs)
-            .width(12f)
+            .width(17f)
             .colorValues(colorValues)
             .zIndex(10f)
     )
+}
+
+private fun AMap.drawSpeedGradientPolyline(points: List<RunTrackPointUiModel>) {
+    val latLngs = points.map { it.toAmapLatLng() }
+    val colorValues = points.indices.map { index ->
+        val speedMps = when {
+            index == 0 && points.size > 1 -> segmentSpeedMps(points[0], points[1])
+            index > 0 -> segmentSpeedMps(points[index - 1], points[index])
+            else -> points[index].speedMetersPerSecond ?: 0f
+        }
+        speedToTrackColor(speedMps).toArgb()
+    }
+    addPolyline(
+        PolylineOptions()
+            .addAll(latLngs)
+            .width(17f)
+            .colorValues(colorValues)
+            .zIndex(10f)
+    )
+}
+
+private fun AMap.drawSpeedGradientPolylines(segments: List<List<RunTrackPointUiModel>>) {
+    segments.forEach { segment ->
+        if (segment.size >= 2) {
+            drawSpeedGradientPolyline(segment)
+        }
+    }
+}
+
+private fun speedToTrackColor(speedMps: Float): Color {
+    return when {
+        speedMps <= 0f -> TrackGradientMiddle
+        speedMps < 1.8f -> TrackSlow
+        speedMps < 3.2f -> TrackSteady
+        else -> TrackFast
+    }
+}
+
+private fun segmentSpeedMps(
+    from: RunTrackPointUiModel,
+    to: RunTrackPointUiModel
+): Float {
+    to.speedMetersPerSecond?.let { if (it > 0f) return it }
+    val deltaSeconds = deltaTimeMs(from, to) / 1000f
+    if (deltaSeconds <= 0f) return 0f
+    return distanceMetersBetween(from, to) / deltaSeconds
+}
+
+private fun List<RunTrackPointUiModel>.simplifyForMapRender(
+    maxPoints: Int = MaxRenderTrackPoints
+): List<RunTrackPointUiModel> {
+    if (size <= maxPoints) return this
+    val step = (size - 1).toFloat() / (maxPoints - 1).coerceAtLeast(1)
+    return List(maxPoints) { index ->
+        this[(index * step).roundToInt().coerceIn(indices)]
+    }.distinctBy { it.recordedAt }
+}
+
+private fun List<RunTrackPointUiModel>.splitByRenderGap(): List<List<RunTrackPointUiModel>> {
+    if (size < 2) return listOf(this)
+    val segments = mutableListOf<MutableList<RunTrackPointUiModel>>()
+    var currentSegment = mutableListOf(first())
+
+    zipWithNext().forEach { (from, to) ->
+        if (isRenderGap(from, to)) {
+            segments += currentSegment
+            currentSegment = mutableListOf(to)
+        } else {
+            currentSegment += to
+        }
+    }
+    segments += currentSegment
+    return segments
+}
+
+private fun isRenderGap(
+    from: RunTrackPointUiModel,
+    to: RunTrackPointUiModel
+): Boolean {
+    val deltaMs = deltaTimeMs(from, to)
+    val distanceMeters = distanceMetersBetween(from, to)
+    return (deltaMs >= RenderGapMinTimeMs && distanceMeters >= RenderGapMinDistanceMeters) ||
+        distanceMeters >= RenderGapMaxDistanceMeters
 }
 
 private fun AMap.addKilometerMarkers(
@@ -220,47 +362,35 @@ private fun createRouteLabelMarkerBitmap(
     background: Color
 ): Bitmap {
     val density = context.resources.displayMetrics.density
-    val size = (32 * density).roundToInt()
+    val size = (28 * density).roundToInt()
     val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     val center = size / 2f
 
     val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = MarkerHalo.toArgb()
+        color = background.toArgb()
         style = Paint.Style.FILL
     }
     canvas.drawCircle(center, center, center - 0.5f * density, paint)
 
-    paint.apply {
-        color = background.toArgb()
-        style = Paint.Style.FILL
-    }
-    canvas.drawCircle(center, center, center - 3f * density, paint)
-
-    drawCenteredText(canvas, text, MarkerWhite, 9.5f * density, Typeface.BOLD)
+    drawCenteredText(canvas, text, MarkerWhite, 8.5f * density, Typeface.BOLD)
     return bitmap
 }
 
 private fun createCircleMarkerBitmap(context: Context, text: String): Bitmap {
     val density = context.resources.displayMetrics.density
-    val size = (22 * density).roundToInt()
+    val size = (18 * density).roundToInt()
     val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     val center = size / 2f
 
     val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = MarkerHalo.toArgb()
+        color = MarkerGreen.toArgb()
         style = Paint.Style.FILL
     }
     canvas.drawCircle(center, center, center - 0.5f * density, paint)
 
-    paint.apply {
-        color = MarkerGreen.toArgb()
-        style = Paint.Style.FILL
-    }
-    canvas.drawCircle(center, center, center - 3f * density, paint)
-
-    drawCenteredText(canvas, text, MarkerWhite, 8.5f * density, Typeface.BOLD)
+    drawCenteredText(canvas, text, MarkerWhite, 7.5f * density, Typeface.BOLD)
     return bitmap
 }
 

@@ -7,6 +7,8 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -51,6 +53,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Brush
@@ -60,6 +63,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.myrunapp.feature.home.GradientSportCardBackground
@@ -87,6 +91,7 @@ import kotlin.math.abs
 private val ExerciseGreen = Color(0xFF22C55E)
 private val CardDark = Color(0xFF111820)
 private val RecordRowMinHeight = 64.dp
+private val ExerciseDialogControlHeight = 42.dp
 
 private data class ExerciseMonthGroup(
     val year: Int,
@@ -1440,6 +1445,7 @@ private fun AddExerciseRecordDialog(
 ) {
     var isDatePickerVisible by remember { mutableStateOf(false) }
     var isDurationPickerVisible by remember { mutableStateOf(false) }
+    val isTreadmill = uiState.inputType == ExerciseType.TREADMILL
 
     AlertDialog(
         modifier = Modifier.imePadding(),
@@ -1449,29 +1455,56 @@ private fun AddExerciseRecordDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 430.dp)
+                    .heightIn(max = 400.dp)
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                ExerciseTypeSelector(selected = uiState.inputType, onTypeChange = onTypeChange)
                 ExerciseDateField(
                     value = uiState.inputDate.ifBlank { todayExerciseDate() },
                     onClick = { isDatePickerVisible = true }
                 )
-                ExerciseTypeSelector(selected = uiState.inputType, onTypeChange = onTypeChange)
-                InputField("里程 km", uiState.inputDistanceKm, onDistanceChange, KeyboardType.Decimal)
+                if (isTreadmill) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        InputField(
+                            label = "里程 km",
+                            value = uiState.inputDistanceKm,
+                            onValueChange = onDistanceChange,
+                            keyboardType = KeyboardType.Decimal,
+                            modifier = Modifier.weight(1f),
+                            height = ExerciseDialogControlHeight
+                        )
+                        InputField(
+                            label = "坡度 %",
+                            value = uiState.inputInclinePercent,
+                            onValueChange = onInclineChange,
+                            keyboardType = KeyboardType.Decimal,
+                            modifier = Modifier.weight(1f),
+                            height = ExerciseDialogControlHeight
+                        )
+                    }
+                } else {
+                    InputField(
+                        label = "里程 km",
+                        value = uiState.inputDistanceKm,
+                        onValueChange = onDistanceChange,
+                        keyboardType = KeyboardType.Decimal,
+                        height = ExerciseDialogControlHeight
+                    )
+                }
                 ExerciseDurationField(
                     selectedMinutes = uiState.selectedDurationMinutes,
                     onClick = { isDurationPickerVisible = true }
                 )
-                if (uiState.inputType == ExerciseType.TREADMILL) {
-                    InputField("坡度 %", uiState.inputInclinePercent, onInclineChange, KeyboardType.Decimal)
-                }
                 uiState.inputError?.let {
                     Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
             }
         },
-        confirmButton = { AppDialogButtonRow(onCancel = onDismiss, onConfirm = onSave, confirmText = "保存") }
+        confirmButton = { ExerciseDialogButtonRow(onCancel = onDismiss, onConfirm = onSave) }
     )
 
     if (isDatePickerVisible) {
@@ -1499,48 +1532,66 @@ private fun AddExerciseRecordDialog(
 
 @Composable
 private fun ExerciseDateField(value: String, onClick: () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-        Text("运动日期", color = AppSecondaryText, style = MaterialTheme.typography.bodySmall)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp)
-                .background(AppBackground, RoundedCornerShape(8.dp))
-                .border(1.dp, AppGrid, RoundedCornerShape(8.dp))
-                .clickable(onClick = onClick)
-                .padding(horizontal = 14.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(value, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-            Text("📅", color = Accent, fontSize = 18.sp)
-        }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(ExerciseDialogControlHeight)
+            .background(AppBackground, RoundedCornerShape(8.dp))
+            .border(1.dp, AppGrid, RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(value, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        Text("📅", color = Accent, fontSize = 15.sp)
     }
 }
 
 @Composable
 private fun ExerciseDurationField(selectedMinutes: Int?, onClick: () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-        Text("运动时长", color = AppSecondaryText, style = MaterialTheme.typography.bodySmall)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp)
-                .background(AppBackground, RoundedCornerShape(8.dp))
-                .border(1.dp, AppGrid, RoundedCornerShape(8.dp))
-                .clickable(onClick = onClick)
-                .padding(horizontal = 14.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = selectedMinutes?.let { "$it 分钟" } ?: "请选择",
-                color = if (selectedMinutes == null) AppSecondaryText else Color.White,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium
-            )
-            Text("›", color = Accent, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(ExerciseDialogControlHeight)
+            .background(AppBackground, RoundedCornerShape(8.dp))
+            .border(1.dp, AppGrid, RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = selectedMinutes?.let { "$it 分钟" } ?: "请选择运动时长",
+            color = if (selectedMinutes == null) AppSecondaryText else Color.White,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium
+        )
+        Text("›", color = Accent, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun ExerciseDialogButtonRow(
+    onCancel: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        AppSecondaryButton(
+            text = "取消",
+            onClick = onCancel,
+            modifier = Modifier.weight(1f),
+            height = ExerciseDialogControlHeight
+        )
+        AppPrimaryButton(
+            text = "保存",
+            onClick = onConfirm,
+            modifier = Modifier.weight(1f),
+            height = ExerciseDialogControlHeight
+        )
     }
 }
 
@@ -1676,13 +1727,19 @@ private fun ExerciseTypeSelector(selected: ExerciseType, onTypeChange: (Exercise
             Box(
                 modifier = Modifier
                     .weight(1f)
+                    .height(ExerciseDialogControlHeight)
                     .background(if (active) Accent else AppBackground, RoundedCornerShape(8.dp))
                     .border(1.dp, if (active) Accent else AppGrid, RoundedCornerShape(8.dp))
-                    .clickable { onTypeChange(type) }
-                    .padding(vertical = 12.dp),
+                    .clickable { onTypeChange(type) },
                 contentAlignment = Alignment.Center
             ) {
-                Text(exerciseTypeText(type), color = if (active) Color(0xFF06130E) else Color.White, fontWeight = FontWeight.Bold)
+                Text(
+                    text = exerciseTypeText(type),
+                    color = if (active) Color(0xFF06130E) else Color.White,
+                    fontSize = 14.sp,
+                    lineHeight = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }
@@ -1694,14 +1751,44 @@ private fun InputField(
     value: String,
     onValueChange: (String) -> Unit,
     keyboardType: KeyboardType,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    height: Dp = ExerciseDialogControlHeight
 ) {
-    AppInputField(
-        label = label,
+    BasicTextField(
         value = value,
         onValueChange = onValueChange,
-        keyboardType = keyboardType,
+        singleLine = true,
+        textStyle = MaterialTheme.typography.bodyMedium.copy(
+            color = Color.White,
+            fontSize = 14.sp,
+            lineHeight = 16.sp,
+            fontWeight = FontWeight.Medium
+        ),
+        cursorBrush = SolidColor(Accent),
+        keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
         modifier = modifier
+            .fillMaxWidth()
+            .height(height)
+            .background(AppBackground, RoundedCornerShape(8.dp))
+            .border(1.dp, AppGrid, RoundedCornerShape(8.dp))
+            .padding(horizontal = 12.dp),
+        decorationBox = { innerTextField ->
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                if (value.isBlank()) {
+                    Text(
+                        text = label,
+                        color = AppSecondaryText,
+                        fontSize = 14.sp,
+                        lineHeight = 16.sp,
+                        maxLines = 1
+                    )
+                }
+                innerTextField()
+            }
+        }
     )
 }
 
