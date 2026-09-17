@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -51,6 +52,7 @@ import com.example.myrunapp.ui.components.PageHorizontalPadding
 import com.example.myrunapp.ui.components.PageTopSpacing
 import com.example.myrunapp.ui.theme.AppSecondaryText
 import com.example.myrunapp.ui.theme.MyRunAppTheme
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
@@ -62,6 +64,7 @@ private val RunHudLabel = Color(0xFF7F8893)
 private val RunBottomPadding = 24.dp
 private val RunBottomItemSpacing = 12.dp
 private val RunActionButtonHeight = 58.dp
+private const val AutoFollowIdleTimeoutMs = 3 * 60 * 1000L
 
 @Composable
 fun RunTrackingRoute(
@@ -112,6 +115,8 @@ fun RunTrackingScreen(
     modifier: Modifier = Modifier
 ) {
     var mapDisplayType by remember { mutableStateOf(RunMapDisplayType.Normal) }
+    var autoFollow by remember { mutableStateOf(true) }
+    var lastMapTouchAt by remember { mutableStateOf(0L) }
     val hasRunInfo = uiState.isTracking || uiState.distanceKm > 0.0 || uiState.durationSeconds > 0L
 
     LaunchedEffect(uiState.isTracking, uiState.trackPoints.size, uiState.distanceKm) {
@@ -119,6 +124,17 @@ fun RunTrackingScreen(
             LogTags.RUN,
             "RUN_UI state isTracking=${uiState.isTracking} points=${uiState.trackPoints.size} distance=${"%.4f".format(uiState.distanceKm)}"
         )
+    }
+
+    LaunchedEffect(autoFollow, lastMapTouchAt) {
+        if (!autoFollow && lastMapTouchAt > 0L) {
+            delay(AutoFollowIdleTimeoutMs)
+            if (!autoFollow && lastMapTouchAt > 0L) {
+                AppLogger.d(LogTags.RUN, "auto follow restored after idle timeout")
+                autoFollow = true
+                lastMapTouchAt = 0L
+            }
+        }
     }
 
     Box(
@@ -131,6 +147,11 @@ fun RunTrackingScreen(
             isTracking = uiState.isTracking,
             hasLocationPermission = uiState.hasLocationPermission,
             mapDisplayType = mapDisplayType,
+            autoFollow = autoFollow,
+            onMapTouched = {
+                autoFollow = false
+                lastMapTouchAt = System.currentTimeMillis()
+            },
             modifier = Modifier.fillMaxSize()
         )
 
@@ -152,11 +173,27 @@ fun RunTrackingScreen(
 
         RunMapTypeToggle(
             mapDisplayType = mapDisplayType,
-            onClick = { mapDisplayType = mapDisplayType.next() },
+            onClick = {
+                mapDisplayType = mapDisplayType.next()
+                autoFollow = true
+                lastMapTouchAt = 0L
+            },
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .statusBarsPadding()
                 .padding(end = PageHorizontalPadding, top = PageTopSpacing + 4.dp)
+        )
+
+        RunMapFollowToggle(
+            autoFollow = autoFollow,
+            onClick = {
+                autoFollow = true
+                lastMapTouchAt = 0L
+            },
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(end = PageHorizontalPadding, top = PageTopSpacing + 44.dp)
         )
 
         uiState.errorMessage?.let {
@@ -391,6 +428,12 @@ private fun RunGpsStatus(
     uiState: RunTrackingUiState,
     modifier: Modifier = Modifier
 ) {
+    val signalLevel = remember(uiState.gpsStatusText, uiState.trackPoints.size) {
+        gpsSignalLevel(
+            accuracyMeters = uiState.trackPoints.lastOrNull()?.accuracyMeters,
+            statusText = uiState.gpsStatusText
+        )
+    }
     Box(
         modifier = modifier
             .widthIn(max = 260.dp)
@@ -398,21 +441,91 @@ private fun RunGpsStatus(
             .padding(horizontal = 11.dp, vertical = 7.dp),
         contentAlignment = Alignment.Center
     ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            RunGpsSignalBars(level = signalLevel)
+            Text(
+                text = when {
+                    !uiState.hasLocationPermission -> "需要精确位置权限才能准确记录运动轨迹"
+                    !uiState.hasNotificationPermission -> "需要通知权限才能在息屏时保持跑步记录"
+                    uiState.isPaused -> "${uiState.gpsStatusText} · 息屏保持中"
+                    uiState.isServiceRunning -> "${uiState.gpsStatusText} · 息屏记录中"
+                    else -> uiState.gpsStatusText
+                },
+                color = if (uiState.hasLocationPermission && uiState.hasNotificationPermission) RunGreen else AppSecondaryText,
+                fontSize = 11.sp,
+                lineHeight = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+                maxLines = 2
+            )
+        }
+    }
+}
+
+@Composable
+private fun RunGpsSignalBars(level: Int) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.Bottom
+    ) {
+        listOf(5.dp, 8.dp, 11.dp).forEachIndexed { index, height ->
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(height)
+                    .background(
+                        color = if (index < level) RunGreen else Color(0x667F8893),
+                        shape = RoundedCornerShape(2.dp)
+                    )
+            )
+        }
+    }
+}
+
+@Composable
+private fun RunMapFollowToggle(
+    autoFollow: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        color = if (autoFollow) Color(0x9922C55E) else Color(0x99111820),
+        shape = RoundedCornerShape(18.dp),
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
+        onClick = onClick
+    ) {
         Text(
-            text = when {
-                !uiState.hasLocationPermission -> "需要精确位置权限才能准确记录运动轨迹"
-                !uiState.hasNotificationPermission -> "需要通知权限才能在息屏时保持跑步记录"
-                uiState.isPaused -> "${uiState.gpsStatusText} · 息屏保持中"
-                uiState.isServiceRunning -> "${uiState.gpsStatusText} · 息屏记录中"
-                else -> uiState.gpsStatusText
-            },
-            color = if (uiState.hasLocationPermission && uiState.hasNotificationPermission) RunGreen else AppSecondaryText,
-            fontSize = 11.sp,
-            lineHeight = 14.sp,
+            text = if (autoFollow) "跟随中" else "跟随",
+            color = if (autoFollow) Color.White else RunGreen,
+            fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
-            textAlign = TextAlign.Center,
-            maxLines = 2
+            modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp)
         )
+    }
+}
+
+private fun gpsSignalLevel(
+    accuracyMeters: Float?,
+    statusText: String
+): Int {
+    accuracyMeters?.let {
+        return when {
+            it <= 10f -> 3
+            it <= 25f -> 2
+            it <= 50f -> 1
+            else -> 0
+        }
+    }
+    return when {
+        statusText.contains("良好") -> 3
+        statusText.contains("精度") -> 2
+        statusText.contains("等待") || statusText.contains("校准") || statusText.contains("定位中") -> 1
+        else -> 0
     }
 }
 

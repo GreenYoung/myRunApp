@@ -104,8 +104,11 @@ data class ExerciseRangeStatsUiState(
 
 data class ExerciseStatsDetailUiState(
     val period: ExerciseStatsPeriod = ExerciseStatsPeriod.WEEK,
+    val periodOffset: Int = 0,
     val title: String = "周统计",
     val rangeText: String = "",
+    val canGoNext: Boolean = false,
+    val canGoPrevious: Boolean = true,
     val totalDistanceKm: Double = 0.0,
     val totalDurationSeconds: Long = 0L,
     val recordCount: Int = 0,

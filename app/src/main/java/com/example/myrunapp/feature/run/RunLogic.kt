@@ -233,7 +233,7 @@ class GpsTrackFilter(
     private fun isInEarlyTrackGuard(nextPoint: RunTrackPointUiModel): Boolean {
         if (acceptedStartedAt <= 0L) return false
         val elapsedMs = (nextPoint.recordedAt - acceptedStartedAt).coerceAtLeast(0L)
-        return elapsedMs <= config.earlyTrackGuardDurationMs ||
+        return elapsedMs <= config.earlyTrackGuardDurationMs &&
             distanceAfterStartAnchorMeters <= config.earlyTrackGuardDistanceMeters
     }
 

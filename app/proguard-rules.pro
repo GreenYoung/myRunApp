@@ -19,3 +19,19 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# AMap SDK optional runtime integrations are not packaged in the selected AAR.
+-dontwarn com.amap.ams.gnss.GnssSoftLocator
+-dontwarn net.jafama.FastMath
+
+# AMap 3D Map/Search/Location SDK uses native code and reflection internally.
+# Keep these classes stable in release builds to avoid map-page runtime crashes.
+-keep class com.amap.** { *; }
+-keep class com.autonavi.** { *; }
+-keep class com.loc.** { *; }
+-keep class com.autonavi.amap.mapcore.** { *; }
+-keep class com.autonavi.base.** { *; }
+-keep class com.autonavi.extra.** { *; }
+-dontwarn com.amap.**
+-dontwarn com.autonavi.**
+-dontwarn com.loc.**

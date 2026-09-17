@@ -43,6 +43,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private const val TrackGapLogMinTimeMs = 8_000L
+private const val TrackGapLogMinDistanceMeters = 40f
+
 class RunTrackingService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val gpsTrackFilter = GpsTrackFilter()
@@ -322,6 +325,13 @@ class RunTrackingService : Service() {
                 }
                 totalDistanceMeters += result.distanceFromPreviousMeters
                 RunTrackingStateStore.update { current ->
+                    current.trackPoints.lastOrNull()?.let { previousPoint ->
+                        logAcceptedTrackGapIfNeeded(
+                            previousPoint = previousPoint,
+                            currentPoint = result.point,
+                            acceptedDistanceMeters = result.distanceFromPreviousMeters
+                        )
+                    }
                     val points = current.trackPoints + result.point
                     val distanceKm = totalDistanceMeters / 1000.0
                     AppLogger.d(
@@ -352,6 +362,26 @@ class RunTrackingService : Service() {
                 RunTrackingStateStore.update { it.copy(gpsStatusText = gpsRejectStatusText(result.reason)) }
             }
         }
+    }
+
+    private fun logAcceptedTrackGapIfNeeded(
+        previousPoint: RunTrackPointUiModel,
+        currentPoint: RunTrackPointUiModel,
+        acceptedDistanceMeters: Float
+    ) {
+        val deltaMs = deltaTimeMs(previousPoint, currentPoint)
+        if (deltaMs < TrackGapLogMinTimeMs && acceptedDistanceMeters < TrackGapLogMinDistanceMeters) return
+
+        val deltaSeconds = deltaMs / 1000f
+        val speedMps = if (deltaSeconds > 0f) acceptedDistanceMeters / deltaSeconds else 0f
+        AppLogger.w(
+            LogTags.TRACK,
+            "TRACK_GAP_ACCEPTED deltaTime=${deltaMs}ms deltaDistance=${"%.2f".format(acceptedDistanceMeters)}m " +
+                "speed=${"%.2f".format(speedMps)}mps previousLat=${previousPoint.latitude} previousLon=${previousPoint.longitude} " +
+                "currentLat=${currentPoint.latitude} currentLon=${currentPoint.longitude} previousAccuracy=${previousPoint.accuracyMeters} " +
+                "currentAccuracy=${currentPoint.accuracyMeters} previousSpeed=${previousPoint.speedMetersPerSecond} " +
+                "currentSpeed=${currentPoint.speedMetersPerSecond} currentCoord=${currentPoint.coordinateSystem}"
+        )
     }
 
     private fun startTimer() {

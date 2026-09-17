@@ -180,9 +180,12 @@ class ExerciseViewModel(
         }
     }
 
-    fun observeStatsDetail(period: ExerciseStatsPeriod): Flow<ExerciseStatsDetailUiState> {
+    fun observeStatsDetail(
+        period: ExerciseStatsPeriod,
+        periodOffset: Int = 0
+    ): Flow<ExerciseStatsDetailUiState> {
         return exerciseDao.observeAllExercises().map { records ->
-            buildExerciseStatsDetail(records, period)
+            buildExerciseStatsDetail(records, period, periodOffset)
         }
     }
 
@@ -225,10 +228,18 @@ class ExerciseViewModel(
                 distanceKm = validation.distanceKm ?: return@launch,
                 inclinePercent = validation.inclinePercent ?: 0.0
             )
+            val startTime = if (
+                current.editingExerciseRecordId == null &&
+                current.inputType == ExerciseType.TREADMILL
+            ) {
+                exerciseDateWithCurrentClockTime(recordDate) ?: validation.startTime ?: return@launch
+            } else {
+                validation.startTime ?: return@launch
+            }
             val entity = ExerciseRecordEntity(
                 id = current.editingExerciseRecordId ?: 0L,
                 type = current.inputType.name,
-                startTime = validation.startTime ?: return@launch,
+                startTime = startTime,
                 durationSeconds = validation.durationSeconds,
                 distanceKm = validation.distanceKm,
                 caloriesKcal = caloriesKcal
