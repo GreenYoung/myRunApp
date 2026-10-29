@@ -1,21 +1,18 @@
 package com.example.myrunapp.feature.weight
 
+import com.example.myrunapp.core.util.AppDateFormats
 import com.example.myrunapp.feature.exercise.data.ExerciseRecordEntity
 import java.math.BigDecimal
 import java.math.RoundingMode
-import java.text.ParseException
-import java.text.SimpleDateFormat
 import java.util.Calendar
-import java.util.Date
 import java.util.Locale
 
-private const val DATE_PATTERN = "yyyy-MM-dd"
 private const val WEIGHT_ERROR = "请输入 30.00～300.00 kg 之间的体重"
 private const val TARGET_WEIGHT_ERROR = "请输入 30.00～300.00 kg 之间的目标体重"
 private const val HEIGHT_ERROR = "请输入 100.0～250.0 cm 之间的身高"
 
 fun todayIsoDate(): String {
-    return SimpleDateFormat(DATE_PATTERN, Locale.US).format(Calendar.getInstance().time)
+    return AppDateFormats.formatIsoDate(System.currentTimeMillis())
 }
 
 fun currentYear(): Int {
@@ -80,19 +77,15 @@ fun changeIsoDateDay(value: String, day: Int): String {
 
 fun isValidIsoDate(value: String): Boolean {
     if (!Regex("""\d{4}-\d{2}-\d{2}""").matches(value)) return false
-    return try {
-        SimpleDateFormat(DATE_PATTERN, Locale.US).apply {
-            isLenient = false
-        }.parse(value)
-        true
-    } catch (_: ParseException) {
-        false
-    }
+    return AppDateFormats.parseIsoDateStrict(value) != null
 }
 
 fun validateWeightInput(date: String, weight: String): WeightValidationResult {
     if (!isValidIsoDate(date.trim())) {
         return WeightValidationResult(error = "请输入合法日期")
+    }
+    if (date.trim() > todayIsoDate()) {
+        return WeightValidationResult(error = "日期不能晚于今天")
     }
 
     val trimmedWeight = weight.trim()
@@ -167,8 +160,8 @@ fun formatSignedWeightChange(change: Double?): String {
     return change?.let { String.format(Locale.US, "%+.2f kg", it) } ?: "--"
 }
 
-fun rangeStartDate(latestDate: String?, range: WeightRange): String? {
-    if (latestDate == null || range == WeightRange.ALL || !isValidIsoDate(latestDate)) return null
+fun rangeStartDate(range: WeightRange): String? {
+    if (range == WeightRange.ALL) return null
     val daysBack = when (range) {
         WeightRange.DAYS_7 -> 6
         WeightRange.DAYS_30 -> 29
@@ -176,24 +169,24 @@ fun rangeStartDate(latestDate: String?, range: WeightRange): String? {
         WeightRange.ALL -> 0
     }
     return Calendar.getInstance().run {
-        time = SimpleDateFormat(DATE_PATTERN, Locale.US).parse(latestDate) ?: return null
         add(Calendar.DAY_OF_YEAR, -daysBack)
-        SimpleDateFormat(DATE_PATTERN, Locale.US).format(time)
+        AppDateFormats.formatIsoDate(timeInMillis)
     }
 }
 
-fun filterWeightPointsByRange(records: List<WeightPoint>, latestDate: String?, range: WeightRange): List<WeightPoint> {
-    val startDate = rangeStartDate(latestDate, range) ?: return records
-    return records.filter { it.date >= startDate }
+fun filterWeightPointsByRange(records: List<WeightPoint>, range: WeightRange): List<WeightPoint> {
+    val startDate = rangeStartDate(range) ?: return records
+    val today = todayIsoDate()
+    return records.filter { it.date in startDate..today }
 }
 
 fun filterWeightTrendPointsByRange(
     records: List<WeightTrendPointUiState>,
-    latestDate: String?,
     range: WeightRange
 ): List<WeightTrendPointUiState> {
-    val startDate = rangeStartDate(latestDate, range) ?: return records
-    return records.filter { it.date >= startDate }
+    val startDate = rangeStartDate(range) ?: return records
+    val today = todayIsoDate()
+    return records.filter { it.date in startDate..today }
 }
 
 fun calculateTargetProgress(firstWeight: Double?, currentWeight: Double?, targetWeight: Double?): Float? {
@@ -228,10 +221,9 @@ fun calculateBmiUiState(latestWeight: Double?, heightCm: Double?): WeightBmiUiSt
 
 fun buildWeightChangeSpeed(
     records: List<WeightPoint>,
-    latestDate: String?,
     range: WeightRange
 ): WeightChangeSpeedUiState {
-    val filtered = filterWeightPointsByRange(records, latestDate, range).sortedBy { it.date }
+    val filtered = filterWeightPointsByRange(records, range).sortedBy { it.date }
     val label = range.speedLabel
     if (filtered.size < 2) {
         return WeightChangeSpeedUiState(range = range, label = label, description = "数据不足")
@@ -256,13 +248,12 @@ fun buildWeightChangeSpeed(
 
 fun buildWeightExerciseCorrelation(
     weightRecords: List<WeightPoint>,
-    exerciseRecords: List<ExerciseRecordEntity>,
-    latestDate: String?
+    exerciseRecords: List<ExerciseRecordEntity>
 ): WeightExerciseCorrelationUiState {
-    val change7 = weightChangeInRange(weightRecords, latestDate, WeightRange.DAYS_7)
-    val change30 = weightChangeInRange(weightRecords, latestDate, WeightRange.DAYS_30)
-    val start7 = rangeStartDate(latestDate, WeightRange.DAYS_7)
-    val start30 = rangeStartDate(latestDate, WeightRange.DAYS_30)
+    val change7 = weightChangeInRange(weightRecords, WeightRange.DAYS_7)
+    val change30 = weightChangeInRange(weightRecords, WeightRange.DAYS_30)
+    val start7 = rangeStartDate(WeightRange.DAYS_7)
+    val start30 = rangeStartDate(WeightRange.DAYS_30)
     val distance7 = exerciseRecords.distanceFrom(start7)
     val distance30 = exerciseRecords.distanceFrom(start30)
     val calories7 = exerciseRecords
@@ -324,29 +315,27 @@ private val WeightRange.speedLabel: String
         WeightRange.ALL -> "全部"
     }
 
-private fun weightChangeInRange(records: List<WeightPoint>, latestDate: String?, range: WeightRange): Double? {
-    val filtered = filterWeightPointsByRange(records, latestDate, range).sortedBy { it.date }
+private fun weightChangeInRange(records: List<WeightPoint>, range: WeightRange): Double? {
+    val filtered = filterWeightPointsByRange(records, range).sortedBy { it.date }
     return if (filtered.size >= 2) filtered.last().weightKg - filtered.first().weightKg else null
 }
 
 private fun daysBetween(startDate: String, endDate: String): Int {
-    return try {
-        val parser = SimpleDateFormat(DATE_PATTERN, Locale.US).apply { isLenient = false }
-        val start = parser.parse(startDate)?.time ?: return 1
-        val end = parser.parse(endDate)?.time ?: return 1
-        (((end - start) / (24L * 60L * 60L * 1000L)).toInt()).coerceAtLeast(1)
-    } catch (_: ParseException) {
-        1
-    }
+    val start = AppDateFormats.parseIsoDateStrict(startDate) ?: return 1
+    val end = AppDateFormats.parseIsoDateStrict(endDate) ?: return 1
+    return (((end - start) / (24L * 60L * 60L * 1000L)).toInt()).coerceAtLeast(1)
 }
 
 private fun ExerciseRecordEntity.isoStartDate(): String {
-    return SimpleDateFormat(DATE_PATTERN, Locale.US).format(Date(startTime))
+    return AppDateFormats.formatIsoDate(startTime)
 }
 
 private fun List<ExerciseRecordEntity>.filterByIsoStart(startDate: String?): List<ExerciseRecordEntity> {
-    if (startDate == null) return this
-    return filter { it.isoStartDate() >= startDate }
+    val today = todayIsoDate()
+    return filter {
+        val date = it.isoStartDate()
+        date <= today && (startDate == null || date >= startDate)
+    }
 }
 
 private fun List<ExerciseRecordEntity>.distanceFrom(startDate: String?): Double {

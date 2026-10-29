@@ -1,33 +1,37 @@
 package com.example.myrunapp.feature.run
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Surface
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.myrunapp.ui.theme.AppSecondaryText
 
-val RunInfoOverlayGreen = Color(0xFF22C55E)
-
-private val RunInfoOverlayShape = RoundedCornerShape(22.dp)
-private val RunInfoOverlayBase = Color(0x99111820)
+private val RunInfoOverlayShape = RoundedCornerShape(24.dp)
+private val RunInfoOverlayTop = Color(0xF0111922)
+private val RunInfoOverlayBottom = Color(0xF7090E13)
+private val RunInfoOverlayDivider = Color(0x12FFFFFF)
+private val RunInfoNumbers = TextStyle(fontFeatureSettings = "tnum")
 
 data class RunInfoMetricUiModel(
     val value: String,
+    val unit: String = "",
     val label: String
 )
 
@@ -37,52 +41,27 @@ fun RunInfoOverlayCard(
     dateText: String,
     firstRow: Pair<RunInfoMetricUiModel, RunInfoMetricUiModel>,
     secondRow: Pair<RunInfoMetricUiModel, RunInfoMetricUiModel>,
-    modifier: Modifier = Modifier,
-    metricValueColor: Color = Color.White
+    modifier: Modifier = Modifier
 ) {
-    RunInfoOverlayContainer(modifier = modifier) {
-        RunInfoOverlayHeader(title = title, dateText = dateText)
-        RunInfoMetricRow(
-            left = firstRow.first,
-            right = firstRow.second,
-            valueColor = metricValueColor
-        )
-        RunInfoMetricRow(
-            left = secondRow.first,
-            right = secondRow.second,
-            valueColor = metricValueColor
-        )
-    }
-}
-
-@Composable
-fun RunInfoOverlayContainer(
-    modifier: Modifier = Modifier,
-    content: @Composable ColumnScope.() -> Unit
-) {
-    Surface(
-        modifier = modifier,
-        shape = RunInfoOverlayShape,
-        color = Color.Transparent,
-        shadowElevation = 0.dp
+    Column(
+        modifier = modifier
+            .clip(RunInfoOverlayShape)
+            .background(
+                Brush.verticalGradient(colors = listOf(RunInfoOverlayTop, RunInfoOverlayBottom))
+            )
+            .border(1.dp, Color.White.copy(alpha = 0.07f), RunInfoOverlayShape)
+            .padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .clip(RunInfoOverlayShape)
-                .background(RunInfoOverlayBase)
-        ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                content()
-            }
-        }
+        RunInfoOverlayHeader(title = title, dateText = dateText)
+        RunInfoMetricRow(left = firstRow.first, right = firstRow.second)
+        HorizontalDivider(color = RunInfoOverlayDivider)
+        RunInfoMetricRow(left = secondRow.first, right = secondRow.second)
     }
 }
 
 @Composable
-fun RunInfoOverlayHeader(
+private fun RunInfoOverlayHeader(
     title: String,
     dateText: String,
     modifier: Modifier = Modifier
@@ -92,46 +71,79 @@ fun RunInfoOverlayHeader(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-        Text(dateText, color = AppSecondaryText, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+        Text(
+            text = title,
+            color = Color.White.copy(alpha = 0.82f),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1
+        )
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .background(Color.White.copy(alpha = 0.06f))
+                .padding(horizontal = 10.dp, vertical = 5.dp)
+        ) {
+            Text(
+                text = dateText,
+                color = AppSecondaryText,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1
+            )
+        }
     }
 }
 
 @Composable
-fun RunInfoMetricRow(
+private fun RunInfoMetricRow(
     left: RunInfoMetricUiModel,
     right: RunInfoMetricUiModel,
-    valueColor: Color,
     modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        RunInfoMetric(left, valueColor, Modifier.weight(1f))
-        RunInfoMetric(right, valueColor, Modifier.weight(1f))
+    Row(modifier = modifier.fillMaxWidth()) {
+        RunInfoMetric(left, Modifier.weight(1f))
+        RunInfoMetric(right, Modifier.weight(1f))
     }
 }
 
 @Composable
-fun RunInfoMetric(
+private fun RunInfoMetric(
     metric: RunInfoMetricUiModel,
-    valueColor: Color,
     modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(5.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
+        Row {
+            Text(
+                text = metric.value,
+                color = Color.White,
+                fontSize = 28.sp,
+                lineHeight = 32.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                softWrap = false,
+                style = RunInfoNumbers,
+                modifier = Modifier.alignByBaseline()
+            )
+            if (metric.unit.isNotEmpty()) {
+                Text(
+                    text = " ${metric.unit}",
+                    color = AppSecondaryText,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier.alignByBaseline()
+                )
+            }
+        }
         Text(
-            text = metric.value,
-            color = valueColor,
-            fontSize = 19.sp,
-            lineHeight = 22.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            softWrap = false
+            text = metric.label,
+            color = AppSecondaryText,
+            fontSize = 12.sp,
+            maxLines = 1
         )
-        Text(metric.label, color = AppSecondaryText, fontWeight = FontWeight.Medium, fontSize = 13.sp)
     }
 }

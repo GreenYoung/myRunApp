@@ -137,15 +137,15 @@ private fun TrackDetailEmptyState(
 
 @Composable
 private fun TrackSummaryOverlay(uiState: RunTrackDetailUiState, modifier: Modifier = Modifier) {
+    val pace = formatHudPaceValue(uiState.paceText)
     RunInfoOverlayCard(
         title = "户外跑步",
         dateText = uiState.startTime?.let { formatExerciseInputDate(it) } ?: "--",
-        firstRow = RunInfoMetricUiModel(formatRunInfoDistance(uiState.distanceKm), "距离") to
-            RunInfoMetricUiModel(formatRunInfoDuration(uiState.durationSeconds), "时长"),
-        secondRow = RunInfoMetricUiModel(formatRunInfoPace(uiState.paceText), "平均配速") to
-            RunInfoMetricUiModel(formatRunInfoCalories(uiState.caloriesKcal), "消耗"),
-        modifier = modifier,
-        metricValueColor = Color.White
+        firstRow = RunInfoMetricUiModel(formatRunInfoDistance(uiState.distanceKm), "km", "距离") to
+            RunInfoMetricUiModel(formatRunInfoDuration(uiState.durationSeconds), "", "时长"),
+        secondRow = RunInfoMetricUiModel(pace.first, pace.second, "平均配速") to
+            RunInfoMetricUiModel(uiState.caloriesKcal.toString(), "kcal", "消耗"),
+        modifier = modifier
     )
 }
 

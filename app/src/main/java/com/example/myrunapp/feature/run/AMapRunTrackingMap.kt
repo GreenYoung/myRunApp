@@ -39,8 +39,6 @@ import kotlin.math.abs
 import kotlin.math.roundToLong
 
 private val RunTrackingMapFallback = Color(0xFF111820)
-private const val RoadLevelAccuracyMeters = 30f
-private const val MaxMapDisplayAccuracyMeters = 80f
 private const val StationaryDriftDistanceMeters = 8f
 private const val StationaryAccuracyDeltaMeters = 6f
 
@@ -49,6 +47,7 @@ fun AMapRunTrackingMap(
     points: List<RunTrackPointUiModel>,
     isTracking: Boolean,
     hasLocationPermission: Boolean,
+    sharedMapLocation: RunMapLocationSnapshot? = null,
     mapDisplayType: RunMapDisplayType = RunMapDisplayType.Normal,
     autoFollow: Boolean = true,
     onMapTouched: () -> Unit = {},
@@ -77,7 +76,8 @@ fun AMapRunTrackingMap(
     val locationSource = remember(context, isTracking) {
         RunMapLocationSource(
             appContext = context.applicationContext,
-            isTracking = isTracking
+            isTracking = isTracking,
+            usesSharedLocation = isTracking
         ) { location ->
             fallbackMapLocation = location.toFallbackRunMapLocation()
         }
@@ -96,6 +96,7 @@ fun AMapRunTrackingMap(
         RunMapUnavailableFallback(modifier = modifier)
         return
     }
+    val trackRenderer = remember(mapView) { AMapLiveTrackRenderer() }
 
     DisposableEffect(lifecycleOwner, mapView) {
         var destroyed = false
@@ -129,6 +130,15 @@ fun AMapRunTrackingMap(
             locationSource.deactivate()
             locationSource.destroy()
         }
+    }
+
+    // 追踪时只消费 Service 的定位结果，地图端不再单独启动 AMapLocationClient。
+    LaunchedEffect(mapConfigured, locationSource, isTracking, sharedMapLocation) {
+        if (!isTracking) return@LaunchedEffect
+        val snapshot = sharedMapLocation ?: return@LaunchedEffect
+        val location = snapshot.toRunMapLocation()
+        fallbackMapLocation = location
+        locationSource.dispatchSharedLocation(location, snapshot.recordedAt)
     }
 
     LaunchedEffect(mapView, locationSource, hasLocationPermission, shouldFollowNativeLocation, mapDisplayType, onMapTouched) {
@@ -170,7 +180,7 @@ fun AMapRunTrackingMap(
         }
     }
 
-    LaunchedEffect(mapConfigured, finalRenderSignature) {
+    LaunchedEffect(mapConfigured, finalRenderSignature, trackRenderer) {
         AppLogger.d(
             LogTags.MAP,
             "track render requested signature=$finalRenderSignature points=${validPoints.size} isTracking=$isTracking " +
@@ -190,6 +200,7 @@ fun AMapRunTrackingMap(
         map.renderRunTrackingTrack(
             context = context,
             mapView = mapView,
+            renderer = trackRenderer,
             points = validPoints,
             isTracking = isTracking,
             autoFollow = autoFollow,
@@ -208,6 +219,7 @@ fun AMapRunTrackingMap(
 private fun AMap.renderRunTrackingTrack(
     context: android.content.Context,
     mapView: MapView,
+    renderer: AMapLiveTrackRenderer,
     points: List<RunTrackPointUiModel>,
     isTracking: Boolean,
     autoFollow: Boolean,
@@ -218,12 +230,11 @@ private fun AMap.renderRunTrackingTrack(
         LogTags.MAP,
         "track render executed points=${points.size} isTracking=$isTracking fallback=${fallbackMapLocation != null}"
     )
-    drawSportTrack(
+    renderer.render(
+        map = this,
         context = context,
         points = points,
-        endLabel = if (isTracking) "LIVE" else "END",
-        showCurrentAsEnd = isTracking,
-        splitRenderGaps = true,
+        isTracking = isTracking,
         currentLocation = fallbackMapLocation
     )
     if (!autoFollow) {
@@ -334,6 +345,7 @@ private fun AMap.configureRoadLevelNativeLocationZoom(
 private class RunMapLocationSource(
     private val appContext: android.content.Context,
     private val isTracking: Boolean,
+    private val usesSharedLocation: Boolean,
     private val onLocationChanged: (AMapLocation) -> Unit
 ) : LocationSource {
     private var listener: LocationSource.OnLocationChangedListener? = null
@@ -341,12 +353,19 @@ private class RunMapLocationSource(
     private var lastDispatchedLocation: AMapLocation? = null
 
     override fun activate(listener: LocationSource.OnLocationChangedListener) {
-        AppLogger.i(LogTags.MAP, "RunMapLocationSource activate isTracking=$isTracking clientExists=${client != null}")
+        AppLogger.i(
+            LogTags.MAP,
+            "RunMapLocationSource activate isTracking=$isTracking shared=$usesSharedLocation clientExists=${client != null}"
+        )
         this.listener = listener
         start()
     }
 
     fun start() {
+        if (usesSharedLocation) {
+            AppLogger.i(LogTags.MAP, "RunMapLocationSource uses shared service location, skip local AMap client")
+            return
+        }
         if (client != null) {
             AppLogger.d(LogTags.MAP, "RunMapLocationSource start skipped existing client")
             return
@@ -384,13 +403,25 @@ private class RunMapLocationSource(
                 }
                 AppLogger.i(
                     LogTags.MAP,
-                    "RunMapLocationSource startLocation interval=${if (isTracking) 1_000L else 2_500L} gpsFirst=true maxDisplayAccuracy=$MaxMapDisplayAccuracyMeters"
+                    "RunMapLocationSource startLocation interval=${if (isTracking) 1_000L else 2_500L} gpsFirst=true maxDisplayAccuracy=$RunMapMaxDisplayAccuracyMeters"
                 )
                 startLocation()
             }
         }.onFailure {
             AppLogger.e(LogTags.MAP, "RunMapLocationSource start failed", it)
         }.getOrNull()
+    }
+
+    /** 追踪时把 Service 的定位结果转交给地图原生定位图层。 */
+    fun dispatchSharedLocation(location: RunMapLocation, recordedAt: Long) {
+        val activeListener = listener ?: return
+        val nativeLocation = Location("run_service").apply {
+            latitude = location.latLng.latitude
+            longitude = location.latLng.longitude
+            accuracy = location.accuracyMeters
+            time = recordedAt
+        }
+        activeListener.onLocationChanged(nativeLocation)
     }
 
     override fun deactivate() {
@@ -433,11 +464,11 @@ private fun AMapLocation.isDisplayableNativeMapLocation(): Boolean {
         logRejectedMapLocation("poor_accuracy accuracy=$accuracy type=$locationType coordType=$coordType gps=$gpsAccuracyStatus")
         return false
     }
-    if (accuracy > MaxMapDisplayAccuracyMeters) {
-        logRejectedMapLocation("too_weak_for_map_display accuracy=$accuracy max=$MaxMapDisplayAccuracyMeters type=$locationType coordType=$coordType gps=$gpsAccuracyStatus")
+    if (accuracy > RunMapMaxDisplayAccuracyMeters) {
+        logRejectedMapLocation("too_weak_for_map_display accuracy=$accuracy max=$RunMapMaxDisplayAccuracyMeters type=$locationType coordType=$coordType gps=$gpsAccuracyStatus")
         return false
     }
-    if (accuracy > RoadLevelAccuracyMeters) {
+    if (accuracy > RunMapRoadLevelAccuracyMeters) {
         logWeakMapLocation(location = this)
     }
     return true
@@ -455,7 +486,7 @@ private fun logAcceptedMapLocation(location: AMapLocation) {
 private fun logWeakMapLocation(location: AMapLocation) {
     AppLogger.d(
         LogTags.MAP,
-        "AMAP_MAP_DISPLAY_WEAK accuracy=${location.accuracy} max=$MaxMapDisplayAccuracyMeters type=${location.locationType} " +
+        "AMAP_MAP_DISPLAY_WEAK accuracy=${location.accuracy} max=$RunMapMaxDisplayAccuracyMeters type=${location.locationType} " +
             "gps=${location.gpsAccuracyStatus} usable=${location.isCoorCanUseInMap}"
     )
 }
@@ -466,18 +497,27 @@ private fun logRejectedMapLocation(reason: String) {
 
 private fun AMapLocation.isReliableForRoadLevelDisplay(): Boolean {
     return accuracy > 0f &&
-        accuracy <= RoadLevelAccuracyMeters &&
+        accuracy <= RunMapRoadLevelAccuracyMeters &&
         locationType == AMapLocation.LOCATION_TYPE_GPS &&
         gpsAccuracyStatus != AMapLocation.GPS_ACCURACY_BAD
 }
 
 private fun RunTrackPointUiModel?.isReliableForRoadLevel(): Boolean {
     val accuracy = this?.accuracyMeters ?: return false
-    return accuracy in 0f..RoadLevelAccuracyMeters
+    return accuracy in 0f..RunMapRoadLevelAccuracyMeters
+}
+
+private fun RunMapLocationSnapshot.toRunMapLocation(): RunMapLocation {
+    return RunMapLocation(
+        latLng = LatLng(latitude, longitude),
+        accuracyMeters = accuracyMeters,
+        isRoadLevelReliable = isRoadLevelReliable,
+        isGpsLocation = isGpsLocation
+    )
 }
 
 private fun AMapLocation.toFallbackRunMapLocation(): RunMapLocation? {
-    if (accuracy <= 0f || accuracy > MaxMapDisplayAccuracyMeters) return null
+    if (accuracy <= 0f || accuracy > RunMapMaxDisplayAccuracyMeters) return null
     val isGpsLocation = locationType == AMapLocation.LOCATION_TYPE_GPS
     return RunMapLocation(
         latLng = com.amap.api.maps.model.LatLng(latitude, longitude),
@@ -504,5 +544,5 @@ private fun Location?.isUsableForRoadLevelZoom(): Boolean {
     if (latitude !in -90.0..90.0 || longitude !in -180.0..180.0) return false
     if (latitude == 0.0 && longitude == 0.0) return false
     if (!hasAccuracy()) return true
-    return accuracy > 0f && accuracy <= RoadLevelAccuracyMeters
+    return accuracy > 0f && accuracy <= RunMapRoadLevelAccuracyMeters
 }

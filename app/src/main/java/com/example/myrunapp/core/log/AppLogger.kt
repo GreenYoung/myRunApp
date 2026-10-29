@@ -7,6 +7,10 @@ import com.example.myrunapp.BuildConfig
 object AppLogger {
     private val fileLogWriter = FileLogWriter()
 
+    /** Minimum level persisted to the log file; Logcat output is unaffected. */
+    @Volatile
+    var minFileLogLevel: LogLevel = LogLevel.D
+
     fun init(context: Context) {
         if (!BuildConfig.ENABLE_FILE_LOG) return
         val appContext = context.applicationContext
@@ -37,6 +41,7 @@ object AppLogger {
 
     private fun write(level: LogLevel, tag: String, message: String, throwable: Throwable?) {
         if (!BuildConfig.ENABLE_FILE_LOG) return
+        if (level.ordinal < minFileLogLevel.ordinal) return
         fileLogWriter.write(level, tag, message, throwable)
     }
 }

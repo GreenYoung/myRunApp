@@ -1,18 +1,24 @@
 package com.example.myrunapp.feature.run
 
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+
+sealed interface RunSaveResult {
+    data class Success(val sessionId: Long) : RunSaveResult
+    data class Failure(val message: String) : RunSaveResult
+}
 
 object RunTrackingStateStore {
     private val _state = MutableStateFlow(RunTrackingUiState())
     val state: StateFlow<RunTrackingUiState> = _state.asStateFlow()
 
-    private val _savedSessionIds = MutableSharedFlow<Long>(extraBufferCapacity = 1)
-    val savedSessionIds: SharedFlow<Long> = _savedSessionIds.asSharedFlow()
+    /**
+     * 保存结果使用 StateFlow 而不是 SharedFlow：StateFlow 会保留最新值，
+     * 即使 Service 在 ViewModel 开始等待之前就完成保存，结果也不会丢失。
+     */
+    private val _saveResult = MutableStateFlow<RunSaveResult?>(null)
+    val saveResult: StateFlow<RunSaveResult?> = _saveResult.asStateFlow()
 
     fun update(transform: (RunTrackingUiState) -> RunTrackingUiState) {
         _state.value = transform(_state.value)
@@ -22,7 +28,11 @@ object RunTrackingStateStore {
         _state.value = RunTrackingUiState()
     }
 
-    fun emitSavedSessionId(sessionId: Long) {
-        _savedSessionIds.tryEmit(sessionId)
+    fun publishSaveResult(result: RunSaveResult) {
+        _saveResult.value = result
+    }
+
+    fun clearSaveResult() {
+        _saveResult.value = null
     }
 }

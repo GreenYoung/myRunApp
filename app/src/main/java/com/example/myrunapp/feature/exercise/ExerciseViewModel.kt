@@ -3,6 +3,8 @@ package com.example.myrunapp.feature.exercise
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.room.withTransaction
+import com.example.myrunapp.core.data.AppDatabase
 import com.example.myrunapp.feature.exercise.data.ExerciseDao
 import com.example.myrunapp.feature.exercise.data.ExerciseGoalRepository
 import com.example.myrunapp.feature.exercise.data.ExerciseRecordEntity
@@ -17,11 +19,21 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+private const val THUMBNAIL_TRACK_STRIDE = 10
+
+private data class ExerciseStatsState(
+    val summary: ExerciseSummaryUiState,
+    val detail: ExerciseDetailUiState,
+    val goal: ExerciseGoalUiState
+)
+
 class ExerciseViewModel(
+    private val database: AppDatabase,
     private val exerciseDao: ExerciseDao,
     private val runDao: RunDao,
     private val weightDao: WeightDao,
@@ -34,29 +46,55 @@ class ExerciseViewModel(
         )
     )
 
-    val uiState = combine(
+    private val selectedStatsRangeFlow = inputState
+        .map { it.detail.selectedStatsRange }
+        .distinctUntilChanged()
+
+    private val thumbnailTrackPointsFlow = combine(
+        runDao.observeSampledTrackPoints(THUMBNAIL_TRACK_STRIDE),
+        runDao.observeTrackPointEdges()
+    ) { sampled, edges ->
+        (sampled + edges)
+            .distinctBy { it.id }
+            .sortedBy { it.recordedAt }
+    }
+
+    private val statsState = combine(
         exerciseDao.observeAllExercises(),
         runDao.observeAllSessions(),
-        runDao.observeAllTrackPoints(),
+        thumbnailTrackPointsFlow,
         exerciseGoalRepository.goalSettings,
-        inputState
-    ) { records, runSessions, runTrackPoints, goalSettings, input ->
-        input.copy(
-            summary = buildExerciseSummary(
-                records = records,
-                weeklyGoal = goalSettings.weeklyDistanceGoalKm,
-                monthlyGoal = goalSettings.monthlyDistanceGoalKm
-            ),
+        selectedStatsRangeFlow
+    ) { records, runSessions, thumbnailPoints, goalSettings, selectedRange ->
+        val summary = buildExerciseSummary(
+            records = records,
+            weeklyGoal = goalSettings.weeklyDistanceGoalKm,
+            monthlyGoal = goalSettings.monthlyDistanceGoalKm
+        )
+        ExerciseStatsState(
+            summary = summary,
             detail = buildExerciseDetail(
                 records = records,
+                summary = summary,
                 runSessions = runSessions,
-                runTrackPoints = runTrackPoints,
-                selectedStatsRange = input.detail.selectedStatsRange
+                runTrackPoints = thumbnailPoints,
+                selectedStatsRange = selectedRange
             ),
             goal = ExerciseGoalUiState(
                 weeklyGoalKm = goalSettings.weeklyDistanceGoalKm,
                 monthlyGoalKm = goalSettings.monthlyDistanceGoalKm
             )
+        )
+    }
+
+    val uiState = combine(
+        statsState,
+        inputState
+    ) { stats, input ->
+        input.copy(
+            summary = stats.summary,
+            detail = stats.detail,
+            goal = stats.goal
         )
     }.stateIn(
         scope = viewModelScope,
@@ -72,6 +110,9 @@ class ExerciseViewModel(
             it.copy(
                 isAddDialogVisible = true,
                 editingExerciseRecordId = null,
+                editingOriginalStartTime = null,
+                editingOriginalDurationSeconds = null,
+                durationSelectionChanged = false,
                 inputType = ExerciseType.TREADMILL,
                 inputDate = todayExerciseDate(),
                 inputDistanceKm = "",
@@ -86,7 +127,16 @@ class ExerciseViewModel(
     }
 
     fun hideAddDialog() {
-        inputState.update { it.copy(isAddDialogVisible = false, editingExerciseRecordId = null, inputError = null) }
+        inputState.update {
+            it.copy(
+                isAddDialogVisible = false,
+                editingExerciseRecordId = null,
+                editingOriginalStartTime = null,
+                editingOriginalDurationSeconds = null,
+                durationSelectionChanged = false,
+                inputError = null
+            )
+        }
     }
 
     fun showEditDialog(record: ExerciseRecordUiModel) {
@@ -95,6 +145,9 @@ class ExerciseViewModel(
             it.copy(
                 isAddDialogVisible = true,
                 editingExerciseRecordId = record.id,
+                editingOriginalStartTime = record.startTime,
+                editingOriginalDurationSeconds = record.durationSeconds,
+                durationSelectionChanged = false,
                 inputType = record.type,
                 inputDate = formatExerciseInputDate(record.startTime),
                 inputDistanceKm = formatDistance(record.distanceKm),
@@ -102,7 +155,7 @@ class ExerciseViewModel(
                 inputDurationHours = "0",
                 inputDurationMinutes = durationMinutes.toString(),
                 inputDurationSeconds = "0",
-                inputInclinePercent = "",
+                inputInclinePercent = record.inclinePercent?.let(::formatInclineInput) ?: "",
                 inputError = null
             )
         }
@@ -122,10 +175,6 @@ class ExerciseViewModel(
 
     fun hideGoalDialog() {
         inputState.update { it.copy(isGoalDialogVisible = false, goalInputError = null) }
-    }
-
-    fun onTypeChange(type: ExerciseType) {
-        inputState.update { it.copy(inputType = type, inputError = null) }
     }
 
     fun onDateChange(value: String) {
@@ -148,6 +197,7 @@ class ExerciseViewModel(
         inputState.update {
             it.copy(
                 selectedDurationMinutes = minutes,
+                durationSelectionChanged = true,
                 inputDurationHours = "0",
                 inputDurationMinutes = minutes.toString(),
                 inputDurationSeconds = "0",
@@ -191,25 +241,34 @@ class ExerciseViewModel(
 
     fun saveExercise() {
         val current = uiState.value
+        val originalDurationSeconds = current.editingOriginalDurationSeconds
+        val keepOriginalDuration = current.editingExerciseRecordId != null &&
+            !current.durationSelectionChanged &&
+            originalDurationSeconds != null
         val selectedMinutes = current.selectedDurationMinutes
-        if (selectedMinutes == null) {
-            inputState.update { it.copy(inputError = "请选择运动时长") }
-            return
-        }
-        if (selectedMinutes !in 1..300) {
-            inputState.update { it.copy(inputError = "运动时长需在 1～300 分钟之间") }
-            return
+        if (!keepOriginalDuration) {
+            if (selectedMinutes == null) {
+                inputState.update { it.copy(inputError = "请选择运动时长") }
+                return
+            }
+            if (selectedMinutes !in 1..300) {
+                inputState.update { it.copy(inputError = "运动时长需在 1～300 分钟之间") }
+                return
+            }
         }
 
-        val durationHours = selectedMinutes / 60
-        val durationMinutes = selectedMinutes % 60
+        val durationSeconds = if (keepOriginalDuration) {
+            originalDurationSeconds
+        } else {
+            selectedMinutes!! * 60L
+        }
         val validation = validateExerciseInput(
             date = current.inputDate,
             type = current.inputType,
             distanceKm = current.inputDistanceKm,
-            hours = durationHours.toString(),
-            minutes = durationMinutes.toString(),
-            seconds = "0",
+            hours = (durationSeconds / 3600).toString(),
+            minutes = ((durationSeconds % 3600) / 60).toString(),
+            seconds = (durationSeconds % 60).toString(),
             inclinePercent = current.inputInclinePercent
         )
 
@@ -221,40 +280,63 @@ class ExerciseViewModel(
         viewModelScope.launch {
             val recordDate = current.inputDate.trim().ifEmpty { todayExerciseDate() }
             val weightKg = weightDao.getLatestWeightOnOrBefore(recordDate)?.weightKg ?: 70.0
+            val validDurationSeconds = validation.durationSeconds ?: return@launch
+            val validDistanceKm = validation.distanceKm ?: return@launch
+            val validInclinePercent = validation.inclinePercent ?: 0.0
             val caloriesKcal = estimateExerciseCalories(
                 weightKg = weightKg,
                 type = current.inputType,
-                durationSeconds = validation.durationSeconds ?: return@launch,
-                distanceKm = validation.distanceKm ?: return@launch,
-                inclinePercent = validation.inclinePercent ?: 0.0
+                durationSeconds = validDurationSeconds,
+                distanceKm = validDistanceKm,
+                inclinePercent = validInclinePercent
             )
-            val startTime = if (
-                current.editingExerciseRecordId == null &&
-                current.inputType == ExerciseType.TREADMILL
-            ) {
-                exerciseDateWithCurrentClockTime(recordDate) ?: validation.startTime ?: return@launch
-            } else {
-                validation.startTime ?: return@launch
+            val editingRecordId = current.editingExerciseRecordId
+            val originalStartTime = current.editingOriginalStartTime
+            val startTime = when {
+                editingRecordId == null ->
+                    exerciseDateWithCurrentClockTime(recordDate) ?: validation.startTime ?: return@launch
+                originalStartTime != null ->
+                    exerciseDateTimeWithOriginalClockTime(recordDate, originalStartTime)
+                        ?: validation.startTime ?: return@launch
+                else -> validation.startTime ?: return@launch
             }
             val entity = ExerciseRecordEntity(
-                id = current.editingExerciseRecordId ?: 0L,
+                id = editingRecordId ?: 0L,
                 type = current.inputType.name,
                 startTime = startTime,
-                durationSeconds = validation.durationSeconds,
-                distanceKm = validation.distanceKm,
-                caloriesKcal = caloriesKcal
+                durationSeconds = validDurationSeconds,
+                distanceKm = validDistanceKm,
+                caloriesKcal = caloriesKcal,
+                inclinePercent = if (current.inputType == ExerciseType.TREADMILL) validInclinePercent else null
             )
-            if (current.editingExerciseRecordId == null) {
-                exerciseDao.insertExercise(
-                    entity.copy(id = 0L)
-                )
-            } else {
-                exerciseDao.updateExercise(entity)
+            // 运动记录和跑步会话必须一起更新，避免只改到一半。
+            database.withTransaction {
+                if (editingRecordId == null) {
+                    exerciseDao.insertExercise(
+                        entity.copy(id = 0L)
+                    )
+                } else {
+                    exerciseDao.updateExercise(entity)
+                    runDao.getSessionByExerciseRecordId(editingRecordId)?.let { session ->
+                        runDao.updateSession(
+                            session.copy(
+                                startTime = startTime,
+                                endTime = startTime + validDurationSeconds * 1000L,
+                                durationSeconds = validDurationSeconds,
+                                distanceKm = validDistanceKm,
+                                caloriesKcal = caloriesKcal
+                            )
+                        )
+                    }
+                }
             }
             inputState.update {
                 it.copy(
                     isAddDialogVisible = false,
                     editingExerciseRecordId = null,
+                    editingOriginalStartTime = null,
+                    editingOriginalDurationSeconds = null,
+                    durationSelectionChanged = false,
                     inputDistanceKm = "",
                     selectedDurationMinutes = null,
                     inputDurationHours = "0",
@@ -269,9 +351,11 @@ class ExerciseViewModel(
 
     fun deleteExercise(recordId: Long) {
         viewModelScope.launch {
-            runDao.deleteTrackPointsByExerciseRecordId(recordId)
-            runDao.deleteSessionsByExerciseRecordId(recordId)
-            exerciseDao.deleteExerciseById(recordId)
+            database.withTransaction {
+                runDao.deleteTrackPointsByExerciseRecordId(recordId)
+                runDao.deleteSessionsByExerciseRecordId(recordId)
+                exerciseDao.deleteExerciseById(recordId)
+            }
         }
     }
 
@@ -350,6 +434,7 @@ class ExerciseViewModel(
 }
 
 class ExerciseViewModelFactory(
+    private val database: AppDatabase,
     private val exerciseDao: ExerciseDao,
     private val runDao: RunDao,
     private val weightDao: WeightDao,
@@ -358,7 +443,7 @@ class ExerciseViewModelFactory(
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(ExerciseViewModel::class.java)) {
-            return ExerciseViewModel(exerciseDao, runDao, weightDao, exerciseGoalRepository) as T
+            return ExerciseViewModel(database, exerciseDao, runDao, weightDao, exerciseGoalRepository) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
     }
@@ -366,4 +451,12 @@ class ExerciseViewModelFactory(
 
 private fun formatGoalInput(value: Double): String {
     return String.format(Locale.US, "%.2f", value)
+}
+
+private fun formatInclineInput(value: Double): String {
+    return if (value == value.toLong().toDouble()) {
+        value.toLong().toString()
+    } else {
+        String.format(Locale.US, "%.1f", value)
+    }
 }

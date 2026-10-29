@@ -1,23 +1,26 @@
 package com.example.myrunapp.feature.exercise
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,6 +31,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -41,9 +45,11 @@ import com.example.myrunapp.ui.theme.AppBackground
 import com.example.myrunapp.ui.theme.AppSecondaryText
 import java.util.Locale
 
-private val StatsCardDark = Color(0xFF111820)
-private val StatsCardSurface = Color(0xFF151E26)
-private val StatsAccentGreen = Color(0xFF22C55E)
+private val StatsHeroTop = Color(0xFF1A2530)
+private val StatsHeroBottom = Color(0xFF10161D)
+private val StatsCardBackground = Color(0xFF141C24)
+private val StatsCardBorder = Color.White.copy(alpha = 0.06f)
+private val StatsDivider = Color(0x14FFFFFF)
 
 @Composable
 fun ExerciseStatsDetailRoute(
@@ -128,174 +134,240 @@ private fun ExerciseStatsHero(
     onPreviousPeriod: () -> Unit,
     onNextPeriod: () -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .background(Brush.linearGradient(listOf(StatsHeroTop, StatsHeroBottom)))
+            .border(1.dp, StatsCardBorder, RoundedCornerShape(22.dp))
     ) {
-        Box(
+        Canvas(modifier = Modifier.matchParentSize()) {
+            val glowCenter = Offset(size.width * 0.9f, size.height * 0.02f)
+            val glowRadius = size.width * 0.75f
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(ExerciseGreen.copy(alpha = 0.16f), Color.Transparent),
+                    center = glowCenter,
+                    radius = glowRadius
+                ),
+                radius = glowRadius,
+                center = glowCenter
+            )
+        }
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(StatsCardSurface, StatsCardDark),
-                        start = Offset.Zero,
-                        end = Offset.Infinite
-                    )
-                )
-                .padding(22.dp)
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                ExerciseStatsPeriodSwitcher(
-                    rangeText = uiState.rangeText,
-                    canGoPrevious = uiState.canGoPrevious,
-                    canGoNext = uiState.canGoNext,
-                    onPreviousPeriod = onPreviousPeriod,
-                    onNextPeriod = onNextPeriod
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ExerciseStatsPeriodPill(
+                    period = uiState.period,
+                    periodOffset = uiState.periodOffset
                 )
-                Row(verticalAlignment = Alignment.Bottom) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ExerciseStatsArrow(
+                        text = "‹",
+                        enabled = uiState.canGoPrevious,
+                        onClick = onPreviousPeriod
+                    )
+                    ExerciseStatsArrow(
+                        text = "›",
+                        enabled = uiState.canGoNext,
+                        onClick = onNextPeriod
+                    )
+                }
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row {
                     Text(
                         text = formatDistance(uiState.totalDistanceKm),
                         color = Color.White,
-                        fontSize = 48.sp,
-                        lineHeight = 52.sp,
+                        fontSize = 46.sp,
+                        lineHeight = 50.sp,
                         fontWeight = FontWeight.Black,
-                        maxLines = 1
+                        maxLines = 1,
+                        style = ExerciseTabularNumbers,
+                        modifier = Modifier.alignByBaseline()
                     )
                     Text(
                         text = " km",
                         color = AppSecondaryText,
-                        fontSize = 18.sp,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(bottom = 6.dp)
+                        maxLines = 1,
+                        modifier = Modifier.alignByBaseline()
                     )
                 }
-                Text(
-                    text = "累计里程",
-                    color = StatsAccentGreen,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(5.dp)
+                            .clip(CircleShape)
+                            .background(ExerciseGreen)
+                    )
+                    Text(
+                        text = "累计里程 · ${uiState.rangeText}",
+                        color = AppSecondaryText,
+                        fontSize = 12.sp,
+                        maxLines = 1
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun ExerciseStatsPeriodSwitcher(
-    rangeText: String,
-    canGoPrevious: Boolean,
-    canGoNext: Boolean,
-    onPreviousPeriod: () -> Unit,
-    onNextPeriod: () -> Unit
+private fun ExerciseStatsPeriodPill(
+    period: ExerciseStatsPeriod,
+    periodOffset: Int
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
+    val text = if (periodOffset == 0) {
+        when (period) {
+            ExerciseStatsPeriod.WEEK -> "本周"
+            ExerciseStatsPeriod.MONTH -> "本月"
+            ExerciseStatsPeriod.YEAR -> "今年"
+        }
+    } else {
+        when (period) {
+            ExerciseStatsPeriod.WEEK -> "周"
+            ExerciseStatsPeriod.MONTH -> "月"
+            ExerciseStatsPeriod.YEAR -> "年"
+        }
+    }
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(ExerciseGreen.copy(alpha = 0.12f))
+            .border(1.dp, ExerciseGreen.copy(alpha = 0.28f), RoundedCornerShape(50))
+            .padding(horizontal = 10.dp, vertical = 5.dp)
     ) {
         Text(
-            text = "‹",
-            color = if (canGoPrevious) StatsAccentGreen else AppSecondaryText.copy(alpha = 0.28f),
-            fontSize = 26.sp,
-            lineHeight = 26.sp,
-            fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center,
-            modifier = Modifier
-                .weight(0.18f)
-                .clickable(enabled = canGoPrevious) { onPreviousPeriod() }
+            text = text,
+            color = ExerciseGreen,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1
         )
+    }
+}
+
+@Composable
+private fun ExerciseStatsArrow(
+    text: String,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(28.dp)
+            .clip(CircleShape)
+            .background(Color.White.copy(alpha = if (enabled) 0.08f else 0.03f))
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
         Text(
-            text = rangeText,
-            color = AppSecondaryText,
-            fontSize = 13.sp,
+            text = text,
+            color = if (enabled) ExerciseGreen else AppSecondaryText.copy(alpha = 0.3f),
+            fontSize = 16.sp,
             lineHeight = 16.sp,
-            maxLines = 1,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.weight(1f)
-        )
-        Text(
-            text = "›",
-            color = if (canGoNext) StatsAccentGreen else AppSecondaryText.copy(alpha = 0.28f),
-            fontSize = 26.sp,
-            lineHeight = 26.sp,
             fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center,
-            modifier = Modifier
-                .weight(0.18f)
-                .clickable(enabled = canGoNext) { onNextPeriod() }
+            textAlign = TextAlign.Center
         )
     }
 }
 
 @Composable
 private fun ExerciseStatsMetricCard(uiState: ExerciseStatsDetailUiState) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        colors = CardDefaults.cardColors(containerColor = StatsCardSurface.copy(alpha = 0.78f))
+    val metrics = listOf(
+        "总时长" to formatStatsDurationClock(uiState.totalDurationSeconds),
+        "运动次数" to "${uiState.recordCount} 次",
+        "打卡天数" to "${uiState.checkInDays} 天",
+        "平均里程" to "${formatDistance(uiState.averageDistanceKm)} km",
+        "平均配速" to uiState.averagePaceText,
+        "最快速度" to "${formatDistance(uiState.fastestSpeedKmh)} km/h",
+        "单次最长" to "${formatDistance(uiState.longestDistanceKm)} km",
+        "最高消耗" to "${formatCalories(uiState.highestCaloriesKcal)} kcal"
+    )
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(StatsCardBackground)
+            .border(1.dp, StatsCardBorder, RoundedCornerShape(20.dp))
+            .padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
-        ) {
-            ExerciseStatsMetricRow {
-                ExerciseStatsMetricItem("总时长", formatStatsDurationClock(uiState.totalDurationSeconds), Modifier.weight(1f))
-                ExerciseStatsMetricItem("运动次数", "${uiState.recordCount} 次", Modifier.weight(1f))
+        Text(
+            text = "数据概览",
+            color = Color.White.copy(alpha = 0.86f),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1
+        )
+        metrics.chunked(2).forEachIndexed { index, pair ->
+            if (index > 0) {
+                HorizontalDivider(color = StatsDivider)
             }
-            ExerciseStatsMetricRow {
-                ExerciseStatsMetricItem("打卡天数", "${uiState.checkInDays} 天", Modifier.weight(1f))
-                ExerciseStatsMetricItem("平均里程", "${formatDistance(uiState.averageDistanceKm)} km", Modifier.weight(1f))
-            }
-            ExerciseStatsMetricRow {
-                ExerciseStatsMetricItem("平均配速", uiState.averagePaceText, Modifier.weight(1f))
-                ExerciseStatsMetricItem("最快速度", "${formatDistance(uiState.fastestSpeedKmh)} km/h", Modifier.weight(1f))
-            }
-            ExerciseStatsMetricRow {
-                ExerciseStatsMetricItem("单次最长", "${formatDistance(uiState.longestDistanceKm)} km", Modifier.weight(1f))
-                ExerciseStatsMetricItem("最高消耗", "${formatCalories(uiState.highestCaloriesKcal)} kcal", Modifier.weight(1f))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ExerciseStatsMetricCell(
+                    label = pair[0].first,
+                    value = pair[0].second,
+                    modifier = Modifier.weight(1f)
+                )
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .height(30.dp)
+                        .background(StatsDivider)
+                )
+                ExerciseStatsMetricCell(
+                    label = pair[1].first,
+                    value = pair[1].second,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 16.dp)
+                )
             }
         }
     }
 }
 
 @Composable
-private fun ExerciseStatsMetricRow(content: @Composable RowScope.() -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-        content = content
-    )
-}
-
-@Composable
-private fun ExerciseStatsMetricItem(
+private fun ExerciseStatsMetricCell(
     label: String,
     value: String,
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Text(
             text = label,
             color = AppSecondaryText,
-            fontSize = 13.sp,
+            fontSize = 12.sp,
             maxLines = 1
         )
         Text(
             text = value,
             color = Color.White,
-            fontSize = 20.sp,
-            lineHeight = 23.sp,
+            fontSize = 21.sp,
+            lineHeight = 24.sp,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
-            style = MaterialTheme.typography.bodyLarge,
-            textAlign = TextAlign.Start
+            style = ExerciseTabularNumbers
         )
     }
 }

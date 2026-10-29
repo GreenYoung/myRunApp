@@ -14,12 +14,12 @@ import android.content.pm.ServiceInfo
 import android.location.Location
 import android.location.LocationManager
 import android.os.Build
-import android.os.Bundle
 import android.os.IBinder
-import android.util.Log
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import androidx.room.withTransaction
 import com.amap.api.location.AMapLocation
 import com.amap.api.location.AMapLocationClient
 import com.amap.api.location.AMapLocationClientOption
@@ -33,18 +33,32 @@ import com.example.myrunapp.feature.exercise.estimateExerciseCalories
 import com.example.myrunapp.feature.exercise.formatDistance
 import com.example.myrunapp.feature.exercise.formatPace
 import com.example.myrunapp.feature.exercise.data.ExerciseRecordEntity
+import com.example.myrunapp.feature.run.data.RunDraftDao
+import com.example.myrunapp.feature.run.data.RunDraftEntity
 import com.example.myrunapp.feature.run.data.RunSessionEntity
+import com.example.myrunapp.feature.run.data.RunTrackPointEntity
 import com.example.myrunapp.feature.weight.todayIsoDate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 
 private const val TrackGapLogMinTimeMs = 8_000L
 private const val TrackGapLogMinDistanceMeters = 40f
+private const val DraftPersistIntervalMs = 5_000L
+private const val LocationSilenceWarnMs = 8_000L
+private const val LocationSilenceRestartMs = 15_000L
+private const val InitialLocationGraceMs = 30_000L
+private const val LocationRestartCooldownMs = 20_000L
+private const val LocationErrorRestartDelayMs = 2_000L
+
+// AMap 错误码 4：网络连接异常/定位超时（info 常见 Location timeout#0402#pm100011）
+private const val AmapErrorCodeConnectionFailure = 4
 
 class RunTrackingService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -59,6 +73,15 @@ class RunTrackingService : Service() {
     private var skipNextAcceptedPoint = false
     private var totalDistanceMeters = 0.0
     private var trackingWeightKg = 70.0
+    private var lastDraftPersistAt = 0L
+    private var lastLocationAtMs = 0L
+    private var lastLocationRestartAtMs = 0L
+    private var locationFixSinceRestart = false
+    private var locationLostNotified = false
+    private var wakeLock: PowerManager.WakeLock? = null
+
+    private val draftDao: RunDraftDao
+        get() = AppDatabase.getInstance(applicationContext).runDraftDao()
 
     override fun onCreate() {
         super.onCreate()
@@ -67,7 +90,32 @@ class RunTrackingService : Service() {
         AMapLocationClient.updatePrivacyAgree(applicationContext, true)
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         ensureNotificationChannel()
+        markStaleTrackingStateIfNeeded()
         AppLogger.i(LogTags.RUN, "RunTrackingService created")
+    }
+
+    /**
+     * Service 实例是新建的，但内存状态仍显示正在跑步，说明上一个 Service 实例已被系统销毁，
+     * 此时不能相信内存状态（否则"开始跑步"会被 isTracking=true 永久拦截），把它转成可恢复状态。
+     */
+    private fun markStaleTrackingStateIfNeeded() {
+        val current = RunTrackingStateStore.state.value
+        if (!current.isTracking) return
+        AppLogger.w(
+            LogTags.RUN,
+            "detected stale tracking state without running service duration=${current.durationSeconds}s distance=${current.distanceKm} points=${current.trackPoints.size}"
+        )
+        RunTrackingStateStore.update {
+            it.copy(
+                isTracking = false,
+                isPaused = false,
+                isServiceRunning = false,
+                isSaving = false,
+                hasRecoveredDraft = it.trackPoints.isNotEmpty() || it.distanceKm > 0.0,
+                gpsStatusText = "跑步记录已中断",
+                errorMessage = null
+            )
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -84,14 +132,40 @@ class RunTrackingService : Service() {
             ACTION_RESUME -> resumeTracking()
             ACTION_FINISH -> finishTracking()
             ACTION_DISCARD -> discardTracking()
+            ACTION_CONTINUE_DRAFT -> continueDraftTracking()
+            ACTION_SAVE_DRAFT -> saveDraftTracking()
+            else -> {
+                // 系统以 null intent 重启（粘性服务）时不会带来任何跑步状态，直接结束空服务。
+                AppLogger.w(LogTags.RUN, "empty restart intent, stopping service action=${intent?.action}")
+                markStaleTrackingStateIfNeeded()
+                stopSelf(startId)
+            }
         }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     override fun onDestroy() {
-        AppLogger.i(LogTags.RUN, "RunTrackingService destroying isTracking=${RunTrackingStateStore.state.value.isTracking}")
+        val current = RunTrackingStateStore.state.value
+        AppLogger.i(LogTags.RUN, "RunTrackingService destroying isTracking=${current.isTracking} isSaving=$isSaving")
+        if (current.isTracking && !isSaving) {
+            persistDraftBlocking()
+            RunTrackingStateStore.update {
+                it.copy(
+                    isTracking = false,
+                    isPaused = false,
+                    isServiceRunning = false,
+                    isSaving = false,
+                    hasRecoveredDraft = it.trackPoints.isNotEmpty() || it.distanceKm > 0.0,
+                    gpsStatusText = "跑步记录已中断",
+                    errorMessage = null
+                )
+            }
+        }
         stopLocationUpdates()
         stopTimer()
+        releaseWakeLock()
+        AppLogger.i(LogTags.RUN, "RunTrackingService cancelling service scope")
+        serviceScope.cancel()
         super.onDestroy()
     }
 
@@ -101,6 +175,7 @@ class RunTrackingService : Service() {
             "RunTrackingService onTaskRemoved isTracking=${RunTrackingStateStore.state.value.isTracking} " +
                 "points=${RunTrackingStateStore.state.value.trackPoints.size}"
         )
+        persistDraftSnapshot(force = true)
         super.onTaskRemoved(rootIntent)
     }
 
@@ -136,6 +211,7 @@ class RunTrackingService : Service() {
         AppLogger.i(LogTags.GPS, "startTracking source=AMap gpsEnabled=$isGpsEnabled networkEnabled=$isNetworkEnabled")
 
         startRunForeground()
+        acquireWakeLock()
 
         startTime = System.currentTimeMillis()
         pausedAtMs = 0L
@@ -144,6 +220,7 @@ class RunTrackingService : Service() {
         totalDistanceMeters = 0.0
         trackingWeightKg = 70.0
         gpsTrackFilter.reset()
+        resetLocationHealthWatch()
         RunTrackingStateStore.update {
             RunTrackingUiState(
                 isTracking = true,
@@ -155,6 +232,7 @@ class RunTrackingService : Service() {
             )
         }
         loadTrackingWeight()
+        resetDraftForNewRun()
         startTimer()
 
         try {
@@ -170,6 +248,7 @@ class RunTrackingService : Service() {
                     errorMessage = "需要精确位置权限才能准确记录运动轨迹"
                 )
             }
+            clearDraftAsync()
             stopForegroundAndSelf()
         }
     }
@@ -190,6 +269,8 @@ class RunTrackingService : Service() {
                 errorMessage = null
             )
         }
+        releaseWakeLock()
+        persistDraftSnapshot(force = true)
         updateNotification()
         AppLogger.i(LogTags.RUN, "pauseTracking applied pausedAtMs=$pausedAtMs")
     }
@@ -209,6 +290,8 @@ class RunTrackingService : Service() {
         pausedAtMs = 0L
         skipNextAcceptedPoint = true
         gpsTrackFilter.reset()
+        resetLocationHealthWatch()
+        acquireWakeLock()
         RunTrackingStateStore.update {
             it.copy(
                 isPaused = false,
@@ -216,6 +299,7 @@ class RunTrackingService : Service() {
                 errorMessage = null
             )
         }
+        persistDraftSnapshot(force = true)
         updateNotification()
         AppLogger.i(LogTags.RUN, "resumeTracking applied totalPausedMs=$totalPausedMs skipNextAcceptedPoint=true")
     }
@@ -225,23 +309,39 @@ class RunTrackingService : Service() {
         val current = RunTrackingStateStore.state.value
         AppLogger.i(LogTags.RUN, "finishTracking requested canSave=${current.canSave} duration=${current.durationSeconds}s distance=${current.distanceKm} points=${current.trackPoints.size}")
         if (!current.canSave || startTime <= 0L) {
+            val message = "本次跑步数据太少，无法保存"
             RunTrackingStateStore.update {
-                it.copy(errorMessage = "本次跑步数据太少，无法保存")
+                it.copy(errorMessage = message)
             }
+            RunTrackingStateStore.publishSaveResult(RunSaveResult.Failure(message))
             return
         }
 
         isSaving = true
         stopLocationUpdates()
         stopTimer()
+        releaseWakeLock()
         RunTrackingStateStore.update { it.copy(isSaving = true) }
 
         serviceScope.launch {
-            val sessionId = saveRun(current)
-            isSaving = false
-            RunTrackingStateStore.emitSavedSessionId(sessionId)
-            RunTrackingStateStore.reset()
-            stopForegroundAndSelf()
+            try {
+                val sessionId = saveRun(current)
+                isSaving = false
+                startTime = 0L
+                withContext(Dispatchers.IO) { runCatching { clearDraft() } }
+                RunTrackingStateStore.update { it.copy(isSaving = false) }
+                RunTrackingStateStore.publishSaveResult(RunSaveResult.Success(sessionId))
+                RunTrackingStateStore.reset()
+                stopForegroundAndSelf()
+            } catch (error: Throwable) {
+                AppLogger.e(LogTags.DATABASE, "save run failed", error)
+                isSaving = false
+                val message = "保存失败，请重试"
+                RunTrackingStateStore.update {
+                    it.copy(isSaving = false, errorMessage = message)
+                }
+                RunTrackingStateStore.publishSaveResult(RunSaveResult.Failure(message))
+            }
         }
     }
 
@@ -257,8 +357,217 @@ class RunTrackingService : Service() {
         totalDistanceMeters = 0.0
         trackingWeightKg = 70.0
         gpsTrackFilter.reset()
+        clearDraftAsync()
         RunTrackingStateStore.reset()
         stopForegroundAndSelf()
+    }
+
+    private fun continueDraftTracking() {
+        if (RunTrackingStateStore.state.value.isTracking) return
+        if (!hasPreciseLocationPermission()) {
+            AppLogger.w(LogTags.RUN, "continue draft blocked: missing precise location permission")
+            RunTrackingStateStore.update {
+                it.copy(
+                    hasLocationPermission = false,
+                    errorMessage = "需要精确位置权限才能准确记录运动轨迹"
+                )
+            }
+            stopSelf()
+            return
+        }
+
+        startRunForeground()
+        acquireWakeLock()
+        serviceScope.launch {
+            val dao = draftDao
+            val draft = withContext(Dispatchers.IO) { dao.getDraft() }
+            val points = withContext(Dispatchers.IO) { dao.getPoints() }
+            if (draft == null || draft.startTime <= 0L) {
+                AppLogger.w(LogTags.RUN, "continue draft blocked: no persisted draft")
+                RunTrackingStateStore.update {
+                    it.copy(
+                        hasRecoveredDraft = false,
+                        errorMessage = "没有可恢复的跑步记录"
+                    )
+                }
+                stopForegroundAndSelf()
+                return@launch
+            }
+
+            val now = System.currentTimeMillis()
+            startTime = draft.startTime
+            totalPausedMs = draft.totalPausedMs +
+                if (draft.pausedAtMs > 0L) (now - draft.pausedAtMs).coerceAtLeast(0L) else 0L
+            pausedAtMs = 0L
+            skipNextAcceptedPoint = true
+            totalDistanceMeters = draft.totalDistanceMeters
+            trackingWeightKg = draft.weightKg
+            lastDraftPersistAt = 0L
+            gpsTrackFilter.reset()
+            resetLocationHealthWatch()
+
+            val durationSeconds = activeDurationSeconds(now)
+            val distanceKm = totalDistanceMeters / 1000.0
+            RunTrackingStateStore.update {
+                RunTrackingUiState(
+                    isTracking = true,
+                    isPaused = false,
+                    hasLocationPermission = true,
+                    hasNotificationPermission = it.hasNotificationPermission,
+                    isServiceRunning = true,
+                    gpsStatusText = "重新定位中",
+                    distanceKm = distanceKm,
+                    durationSeconds = durationSeconds,
+                    averagePaceText = formatPace(durationSeconds, distanceKm),
+                    caloriesKcal = calculateRunCalories(durationSeconds, distanceKm),
+                    canSave = durationSeconds > 0L && distanceKm > 0.0 && points.size >= 2,
+                    trackPoints = points.map { point -> point.toRunTrackPointUiModel() }
+                )
+            }
+            AppLogger.i(
+                LogTags.RUN,
+                "draft restored startTime=$startTime duration=${durationSeconds}s distance=${distanceKm}km points=${points.size}"
+            )
+            updateNotification()
+            startTimer()
+            try {
+                startAmapLocationUpdates()
+            } catch (error: Throwable) {
+                AppLogger.e(LogTags.GPS, "AMap location updates failed on draft restore", error)
+                RunTrackingStateStore.update {
+                    it.copy(
+                        isTracking = false,
+                        isPaused = false,
+                        isServiceRunning = false,
+                        hasLocationPermission = false,
+                        hasRecoveredDraft = it.trackPoints.isNotEmpty() || it.distanceKm > 0.0,
+                        gpsStatusText = "跑步记录已中断",
+                        errorMessage = "需要精确位置权限才能准确记录运动轨迹"
+                    )
+                }
+                stopForegroundAndSelf()
+                return@launch
+            }
+            persistDraftSnapshot(force = true)
+        }
+    }
+
+    private fun saveDraftTracking() {
+        if (isSaving) return
+        isSaving = true
+        RunTrackingStateStore.update { it.copy(isSaving = true) }
+        serviceScope.launch {
+            try {
+                val dao = draftDao
+                val draft = withContext(Dispatchers.IO) { dao.getDraft() }
+                val points = withContext(Dispatchers.IO) { dao.getPoints() }
+                if (draft == null || draft.startTime <= 0L || draft.durationSeconds <= 0L ||
+                    draft.totalDistanceMeters <= 0.0 || points.size < 2
+                ) {
+                    val message = "本次跑步数据太少，无法保存"
+                    AppLogger.w(LogTags.RUN, "save draft blocked: insufficient data")
+                    isSaving = false
+                    RunTrackingStateStore.update { it.copy(isSaving = false, errorMessage = message) }
+                    RunTrackingStateStore.publishSaveResult(RunSaveResult.Failure(message))
+                    return@launch
+                }
+
+                val database = AppDatabase.getInstance(applicationContext)
+                val weightKg = withContext(Dispatchers.IO) {
+                    database.weightDao().getLatestWeightOnOrBefore(todayIsoDate())?.weightKg
+                } ?: draft.weightKg
+                val distanceKm = draft.totalDistanceMeters / 1000.0
+                val caloriesKcal = estimateExerciseCalories(
+                    weightKg = weightKg,
+                    type = ExerciseType.OUTDOOR_RUNNING,
+                    durationSeconds = draft.durationSeconds,
+                    distanceKm = distanceKm,
+                    inclinePercent = 0.0
+                )
+                val endTime = maxOf(draft.updatedAt, points.last().recordedAt)
+                val sessionId = saveRunData(
+                    startTime = draft.startTime,
+                    endTime = endTime,
+                    durationSeconds = draft.durationSeconds,
+                    distanceKm = distanceKm,
+                    caloriesKcal = caloriesKcal,
+                    points = points.map { it.toRunTrackPointUiModel().toEntity(0L) }
+                )
+                withContext(Dispatchers.IO) { runCatching { clearDraft() } }
+                isSaving = false
+                RunTrackingStateStore.publishSaveResult(RunSaveResult.Success(sessionId))
+                RunTrackingStateStore.reset()
+                stopForegroundAndSelf()
+            } catch (error: Throwable) {
+                AppLogger.e(LogTags.DATABASE, "save recovered draft failed", error)
+                isSaving = false
+                val message = "保存失败，请重试"
+                RunTrackingStateStore.update { it.copy(isSaving = false, errorMessage = message) }
+                RunTrackingStateStore.publishSaveResult(RunSaveResult.Failure(message))
+            }
+        }
+    }
+
+    private fun resetDraftForNewRun() {
+        val snapshot = buildDraftSnapshot(System.currentTimeMillis()) ?: return
+        serviceScope.launch(Dispatchers.IO) {
+            runCatching {
+                clearDraft()
+                draftDao.upsertDraft(snapshot)
+            }.onFailure { AppLogger.e(LogTags.DATABASE, "reset run draft failed", it) }
+        }
+    }
+
+    private fun appendDraftPoint(point: RunTrackPointUiModel) {
+        serviceScope.launch(Dispatchers.IO) {
+            runCatching { draftDao.insertPoint(point.toDraftEntity()) }
+                .onFailure { AppLogger.e(LogTags.DATABASE, "persist draft point failed", it) }
+        }
+    }
+
+    private fun persistDraftSnapshot(force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        if (!force && now - lastDraftPersistAt < DraftPersistIntervalMs) return
+        val snapshot = buildDraftSnapshot(now) ?: return
+        lastDraftPersistAt = now
+        serviceScope.launch(Dispatchers.IO) {
+            runCatching { draftDao.upsertDraft(snapshot) }
+                .onFailure { AppLogger.e(LogTags.DATABASE, "persist run draft failed", it) }
+        }
+    }
+
+    private fun buildDraftSnapshot(now: Long): RunDraftEntity? {
+        val current = RunTrackingStateStore.state.value
+        if (!current.isTracking || startTime <= 0L) return null
+        return RunDraftEntity(
+            startTime = startTime,
+            pausedAtMs = pausedAtMs,
+            totalPausedMs = totalPausedMs,
+            durationSeconds = current.durationSeconds,
+            totalDistanceMeters = totalDistanceMeters,
+            caloriesKcal = current.caloriesKcal,
+            weightKg = trackingWeightKg,
+            updatedAt = now
+        )
+    }
+
+    private fun persistDraftBlocking() {
+        val snapshot = buildDraftSnapshot(System.currentTimeMillis()) ?: return
+        runCatching {
+            runBlocking(Dispatchers.IO) { draftDao.upsertDraft(snapshot) }
+        }.onFailure { AppLogger.e(LogTags.DATABASE, "persist run draft on destroy failed", it) }
+    }
+
+    private fun clearDraftAsync() {
+        serviceScope.launch(Dispatchers.IO) {
+            runCatching { clearDraft() }
+                .onFailure { AppLogger.e(LogTags.DATABASE, "clear run draft failed", it) }
+        }
+    }
+
+    private suspend fun clearDraft() {
+        draftDao.clearPoints()
+        draftDao.clearDraft()
     }
 
     private suspend fun saveRun(current: RunTrackingUiState): Long = withContext(Dispatchers.IO) {
@@ -273,32 +582,55 @@ class RunTrackingService : Service() {
             distanceKm = current.distanceKm,
             inclinePercent = 0.0
         )
-        val exerciseRecordId = database.exerciseDao().insertExercise(
-            ExerciseRecordEntity(
-                type = ExerciseType.OUTDOOR_RUNNING.name,
-                startTime = startTime,
-                durationSeconds = current.durationSeconds,
-                distanceKm = current.distanceKm,
-                caloriesKcal = caloriesKcal
+        saveRunData(
+            startTime = startTime,
+            endTime = endTime,
+            durationSeconds = current.durationSeconds,
+            distanceKm = current.distanceKm,
+            caloriesKcal = caloriesKcal,
+            points = current.trackPoints.map { it.toEntity(0L) }
+        )
+    }
+
+    private suspend fun saveRunData(
+        startTime: Long,
+        endTime: Long,
+        durationSeconds: Long,
+        distanceKm: Double,
+        caloriesKcal: Int,
+        points: List<RunTrackPointEntity>
+    ): Long = withContext(Dispatchers.IO) {
+        val database = AppDatabase.getInstance(applicationContext)
+        // 三张表必须一起成功，否则会留下没有会话/轨迹的运动记录。
+        database.withTransaction {
+            val exerciseRecordId = database.exerciseDao().insertExercise(
+                ExerciseRecordEntity(
+                    type = ExerciseType.OUTDOOR_RUNNING.name,
+                    startTime = startTime,
+                    durationSeconds = durationSeconds,
+                    distanceKm = distanceKm,
+                    caloriesKcal = caloriesKcal
+                )
             )
-        )
-        val sessionId = database.runDao().insertSession(
-            RunSessionEntity(
-                exerciseRecordId = exerciseRecordId,
-                startTime = startTime,
-                endTime = endTime,
-                durationSeconds = current.durationSeconds,
-                distanceKm = current.distanceKm,
-                caloriesKcal = caloriesKcal,
-                createdAt = endTime
+            val newSessionId = database.runDao().insertSession(
+                RunSessionEntity(
+                    exerciseRecordId = exerciseRecordId,
+                    startTime = startTime,
+                    endTime = endTime,
+                    durationSeconds = durationSeconds,
+                    distanceKm = distanceKm,
+                    caloriesKcal = caloriesKcal,
+                    createdAt = endTime
+                )
             )
-        )
-        database.runDao().insertTrackPoints(current.trackPoints.map { it.toEntity(sessionId) })
-        AppLogger.i(
-            LogTags.DATABASE,
-            "run saved sessionId=$sessionId exerciseRecordId=$exerciseRecordId duration=${current.durationSeconds}s distance=${current.distanceKm} points=${current.trackPoints.size}"
-        )
-        sessionId
+            database.runDao().insertTrackPoints(points.map { it.copy(sessionId = newSessionId) })
+            AppLogger.i(
+                LogTags.DATABASE,
+                "run saved sessionId=$newSessionId exerciseRecordId=$exerciseRecordId duration=${durationSeconds}s " +
+                    "distance=$distanceKm points=${points.size}"
+            )
+            newSessionId
+        }
     }
 
     private fun handleLocation(location: Location) {
@@ -350,6 +682,8 @@ class RunTrackingService : Service() {
                     )
                 }
                 updateNotification()
+                appendDraftPoint(result.point)
+                persistDraftSnapshot()
             }
             is LocationFilterResult.Pending -> {
                 logRejectedLocation(location, result.reason)
@@ -389,6 +723,7 @@ class RunTrackingService : Service() {
         timerJob = serviceScope.launch {
             while (true) {
                 delay(1_000L)
+                monitorLocationHealth()
                 RunTrackingStateStore.update { current ->
                     if (current.isPaused) {
                         return@update current
@@ -402,6 +737,7 @@ class RunTrackingService : Service() {
                     )
                 }
                 updateNotification()
+                persistDraftSnapshot()
             }
         }
     }
@@ -409,6 +745,80 @@ class RunTrackingService : Service() {
     private fun stopTimer() {
         timerJob?.cancel()
         timerJob = null
+    }
+
+    private fun resetLocationHealthWatch() {
+        lastLocationAtMs = System.currentTimeMillis()
+        lastLocationRestartAtMs = 0L
+        locationFixSinceRestart = false
+        locationLostNotified = false
+    }
+
+    /**
+     * AMap 偶尔会长时间（实测约 160s）不再回调任何定位，直到 SDK 自己报 error=4 超时才恢复。
+     * 这里用 1 秒定时器做看门狗：先提示用户，再主动重建定位客户端，避免把短暂丢星拖成几分钟的轨迹空洞。
+     */
+    private fun monitorLocationHealth() {
+        val current = RunTrackingStateStore.state.value
+        if (!current.isTracking || current.isPaused) {
+            lastLocationAtMs = System.currentTimeMillis()
+            return
+        }
+        val now = System.currentTimeMillis()
+        val silenceMs = now - lastLocationAtMs
+        val restartThresholdMs = if (locationFixSinceRestart) LocationSilenceRestartMs else InitialLocationGraceMs
+        when {
+            silenceMs >= restartThresholdMs -> {
+                if (!locationLostNotified) {
+                    locationLostNotified = true
+                    AppLogger.w(
+                        LogTags.GPS,
+                        "location source silent for ${silenceMs}ms (fixSinceRestart=$locationFixSinceRestart), restarting AMap client"
+                    )
+                }
+                RunTrackingStateStore.update {
+                    it.copy(gpsStatusText = if (locationFixSinceRestart) "GPS 信号丢失，正在重新定位" else "GPS 信号弱，正在重新定位")
+                }
+                restartAmapLocation(reason = "silence_${silenceMs}ms")
+            }
+            silenceMs >= LocationSilenceWarnMs && locationFixSinceRestart -> {
+                if (!locationLostNotified) {
+                    locationLostNotified = true
+                    AppLogger.w(LogTags.GPS, "location source silent for ${silenceMs}ms, waiting for recovery")
+                }
+                RunTrackingStateStore.update { it.copy(gpsStatusText = "GPS 信号弱，等待定位") }
+            }
+        }
+    }
+
+    private fun restartAmapLocation(reason: String) {
+        val current = RunTrackingStateStore.state.value
+        if (!current.isTracking || current.isPaused || isSaving) return
+        val now = System.currentTimeMillis()
+        val sinceLastRestartMs = now - lastLocationRestartAtMs
+        if (lastLocationRestartAtMs > 0L && sinceLastRestartMs < LocationRestartCooldownMs) {
+            AppLogger.d(LogTags.GPS, "skip AMap restart reason=$reason cooldownRemaining=${LocationRestartCooldownMs - sinceLastRestartMs}ms")
+            return
+        }
+        lastLocationRestartAtMs = now
+        lastLocationAtMs = now
+        locationFixSinceRestart = false
+        gpsTrackFilter.beginRecovery()
+        AppLogger.w(LogTags.GPS, "restarting AMap location client reason=$reason")
+        runCatching { startAmapLocationUpdates() }
+            .onFailure { error ->
+                AppLogger.e(LogTags.GPS, "restart AMap location client failed reason=$reason", error)
+            }
+    }
+
+    private fun markLocationReceived() {
+        val now = System.currentTimeMillis()
+        if (locationLostNotified) {
+            locationLostNotified = false
+            AppLogger.i(LogTags.GPS, "location source recovered silence=${now - lastLocationAtMs}ms")
+        }
+        lastLocationAtMs = now
+        locationFixSinceRestart = true
     }
 
     private fun activeDurationSeconds(now: Long = System.currentTimeMillis()): Long {
@@ -493,10 +903,43 @@ class RunTrackingService : Service() {
         )
         if (location.errorCode != AMapLocation.LOCATION_SUCCESS) {
             AppLogger.w(LogTags.GPS, "AMap location failed error=${location.errorCode} info=${location.errorInfo}")
-            RunTrackingStateStore.update { it.copy(gpsStatusText = "GPS 定位中") }
+            if (location.errorCode == AmapErrorCodeConnectionFailure) {
+                RunTrackingStateStore.update { it.copy(gpsStatusText = "GPS 定位异常，正在重新定位") }
+                serviceScope.launch {
+                    delay(LocationErrorRestartDelayMs)
+                    restartAmapLocation(reason = "amap_error_${location.errorCode}")
+                }
+            } else {
+                RunTrackingStateStore.update { it.copy(gpsStatusText = "GPS 定位中") }
+            }
             return
         }
+        markLocationReceived()
+        publishMapLocation(location)
         handleLocation(location)
+    }
+
+    /**
+     * 把定位结果发布到共享状态，地图页据此更新原生定位蓝点，避免地图端再开一个定位客户端。
+     * 坐标已是 GCJ-02（客户端设置了 setOffset(true)），可直接用于高德地图。
+     */
+    private fun publishMapLocation(location: AMapLocation) {
+        if (location.accuracy <= 0f || location.accuracy > RunMapMaxDisplayAccuracyMeters) return
+        val isGpsLocation = location.locationType == AMapLocation.LOCATION_TYPE_GPS
+        RunTrackingStateStore.update {
+            it.copy(
+                mapLocation = RunMapLocationSnapshot(
+                    latitude = location.latitude,
+                    longitude = location.longitude,
+                    accuracyMeters = location.accuracy,
+                    isRoadLevelReliable = location.accuracy <= RunMapRoadLevelAccuracyMeters &&
+                        isGpsLocation &&
+                        location.gpsAccuracyStatus != AMapLocation.GPS_ACCURACY_BAD,
+                    isGpsLocation = isGpsLocation,
+                    recordedAt = location.time
+                )
+            )
+        }
     }
 
     private fun updateNotification() {
@@ -551,6 +994,7 @@ class RunTrackingService : Service() {
     }
 
     private fun stopForegroundAndSelf() {
+        releaseWakeLock()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } else {
@@ -558,6 +1002,34 @@ class RunTrackingService : Service() {
             stopForeground(true)
         }
         stopSelf()
+    }
+
+    /**
+     * 前台服务本身不会阻止 CPU 休眠。屏幕关闭后 CPU 挂起会同时冻结定位回调和 1s 计时器，
+     * 表现为轨迹长时间中断（日志里一段时间内 GPS、地图、watchdog 全部静默）。
+     * 因此记录期间持有 PARTIAL_WAKE_LOCK，暂停/结束/销毁时释放。
+     */
+    @SuppressLint("WakelockTimeout")
+    private fun acquireWakeLock() {
+        val existing = wakeLock
+        if (existing?.isHeld == true) return
+        val lock = (getSystemService(Context.POWER_SERVICE) as PowerManager)
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG)
+            .apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+        wakeLock = lock
+        AppLogger.i(LogTags.RUN, "wake lock acquired tag=$WAKE_LOCK_TAG")
+    }
+
+    private fun releaseWakeLock() {
+        val lock = wakeLock ?: return
+        wakeLock = null
+        if (lock.isHeld) {
+            lock.release()
+            AppLogger.i(LogTags.RUN, "wake lock released")
+        }
     }
 
     private fun hasPreciseLocationPermission(): Boolean {
@@ -574,6 +1046,8 @@ class RunTrackingService : Service() {
             LocationRejectReason.START_ANCHOR_CALIBRATING,
             LocationRejectReason.START_ANCHOR_UNSTABLE -> "正在校准起点"
             LocationRejectReason.EARLY_TRACK_GUARD -> "已过滤起步异常跳点"
+            LocationRejectReason.RECOVERY_CALIBRATING,
+            LocationRejectReason.RECOVERY_GUARD -> "已过滤恢复期异常点"
             LocationRejectReason.IMPOSSIBLE_SPEED,
             LocationRejectReason.LARGE_JUMP,
             LocationRejectReason.SUSPECT_SPIKE -> "已过滤异常跳点"
@@ -587,13 +1061,15 @@ class RunTrackingService : Service() {
             LocationRejectReason.START_ANCHOR_CALIBRATING -> "正在校准起点"
             LocationRejectReason.START_ANCHOR_UNSTABLE -> "起点定位不稳定"
             LocationRejectReason.EARLY_TRACK_GUARD -> "正在确认起步轨迹"
+            LocationRejectReason.RECOVERY_CALIBRATING -> "正在重新校准定位"
+            LocationRejectReason.RECOVERY_GUARD -> "正在确认 GPS 连续性"
             else -> "正在确认 GPS 连续性"
         }
     }
 
     private fun logRejectedLocation(location: Location, reason: LocationRejectReason) {
-        Log.d(
-            "GpsTrackFilter",
+        AppLogger.d(
+            LogTags.GPS,
             "GPS_REJECT reason=$reason accuracy=${if (location.hasAccuracy()) location.accuracy else null} " +
                 "speed=${if (location.hasSpeed()) location.speed else null} time=${location.time}"
         )
@@ -607,11 +1083,14 @@ class RunTrackingService : Service() {
     companion object {
         private const val CHANNEL_ID = "run_tracking"
         private const val NOTIFICATION_ID = 3001
+        private const val WAKE_LOCK_TAG = "MyRunApp:RunTracking"
         private const val ACTION_START = "com.example.myrunapp.feature.run.START"
         private const val ACTION_PAUSE = "com.example.myrunapp.feature.run.PAUSE"
         private const val ACTION_RESUME = "com.example.myrunapp.feature.run.RESUME"
         private const val ACTION_FINISH = "com.example.myrunapp.feature.run.FINISH"
         private const val ACTION_DISCARD = "com.example.myrunapp.feature.run.DISCARD"
+        private const val ACTION_CONTINUE_DRAFT = "com.example.myrunapp.feature.run.CONTINUE_DRAFT"
+        private const val ACTION_SAVE_DRAFT = "com.example.myrunapp.feature.run.SAVE_DRAFT"
 
         fun startIntent(context: Context): Intent {
             return Intent(context, RunTrackingService::class.java).setAction(ACTION_START)
@@ -631,6 +1110,14 @@ class RunTrackingService : Service() {
 
         fun discardIntent(context: Context): Intent {
             return Intent(context, RunTrackingService::class.java).setAction(ACTION_DISCARD)
+        }
+
+        fun continueDraftIntent(context: Context): Intent {
+            return Intent(context, RunTrackingService::class.java).setAction(ACTION_CONTINUE_DRAFT)
+        }
+
+        fun saveDraftIntent(context: Context): Intent {
+            return Intent(context, RunTrackingService::class.java).setAction(ACTION_SAVE_DRAFT)
         }
     }
 }

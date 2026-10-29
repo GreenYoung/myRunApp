@@ -4,6 +4,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Locale
 
 class WeightLogicTest {
     @Test
@@ -60,5 +63,40 @@ class WeightLogicTest {
         val result = changeIsoDateDay("${currentYear()}-08-20", 9)
 
         assertEquals("${currentYear()}-08-09", result)
+    }
+
+    @Test
+    fun filterWeightPointsByRange_anchorsWindowToToday() {
+        val today = todayIsoDate()
+        val twoDaysAgo = isoDaysAgo(2)
+        val tenDaysAgo = isoDaysAgo(10)
+        val points = listOf(
+            WeightPoint(tenDaysAgo, 70.0),
+            WeightPoint(twoDaysAgo, 71.0),
+            WeightPoint(today, 72.0)
+        )
+
+        val filtered = filterWeightPointsByRange(points, WeightRange.DAYS_7)
+
+        assertEquals(listOf(twoDaysAgo, today), filtered.map { it.date })
+    }
+
+    @Test
+    fun filterWeightPointsByRange_allKeepsEveryPoint() {
+        val points = listOf(
+            WeightPoint(isoDaysAgo(100), 70.0),
+            WeightPoint(todayIsoDate(), 72.0)
+        )
+
+        val filtered = filterWeightPointsByRange(points, WeightRange.ALL)
+
+        assertEquals(points, filtered)
+    }
+
+    private fun isoDaysAgo(days: Int): String {
+        return Calendar.getInstance().run {
+            add(Calendar.DAY_OF_YEAR, -days)
+            SimpleDateFormat("yyyy-MM-dd", Locale.US).format(time)
+        }
     }
 }

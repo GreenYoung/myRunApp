@@ -24,12 +24,6 @@ class TargetWeightRepository(
         preferences[heightCmKey]
     }
 
-    suspend fun saveTargetWeight(weightKg: Double) {
-        dataStore.edit { preferences ->
-            preferences[targetWeightKey] = weightKg
-        }
-    }
-
     suspend fun saveWeightSettings(targetWeightKg: Double, heightCm: Double?) {
         dataStore.edit { preferences ->
             preferences[targetWeightKey] = targetWeightKg

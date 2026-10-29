@@ -31,10 +31,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.myrunapp.ui.theme.Accent
 import com.example.myrunapp.ui.theme.AppBackground
+import com.example.myrunapp.core.util.AppDateFormats
 import com.example.myrunapp.ui.theme.AppSecondaryText
-import java.text.SimpleDateFormat
 import java.util.Calendar
-import java.util.Locale
 
 private val DatePickerGreen = Color(0xFF22C55E)
 private val DatePickerDark = Color(0xFF111820)
@@ -68,6 +67,7 @@ fun ExerciseDatePicker(
         ) {
             ExerciseDatePickerHeader(
                 month = browsingMonth,
+                canGoNext = browsingMonth.before(monthStart(today)),
                 onPreviousMonth = {
                     browsingMonth = shiftMonth(browsingMonth, -1)
                 },
@@ -89,6 +89,7 @@ fun ExerciseDatePicker(
 @Composable
 private fun ExerciseDatePickerHeader(
     month: Calendar,
+    canGoNext: Boolean,
     onPreviousMonth: () -> Unit,
     onNextMonth: () -> Unit
 ) {
@@ -97,27 +98,32 @@ private fun ExerciseDatePickerHeader(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        DatePickerArrow("‹", onPreviousMonth)
+        DatePickerArrow("‹", enabled = true, onClick = onPreviousMonth)
         Text(
             text = "${month.get(Calendar.YEAR)}年${month.get(Calendar.MONTH) + 1}月",
             color = Color.White,
             fontSize = 18.sp,
             fontWeight = FontWeight.Bold
         )
-        DatePickerArrow("›", onNextMonth)
+        DatePickerArrow("›", enabled = canGoNext, onClick = onNextMonth)
     }
 }
 
 @Composable
-private fun DatePickerArrow(text: String, onClick: () -> Unit) {
+private fun DatePickerArrow(text: String, enabled: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .size(40.dp)
             .background(AppBackground.copy(alpha = 0.55f), CircleShape)
-            .clickable(onClick = onClick),
+            .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Text(text = text, color = Accent, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Text(
+            text = text,
+            color = if (enabled) Accent else AppSecondaryText.copy(alpha = 0.4f),
+            fontSize = 24.sp,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 
@@ -166,6 +172,7 @@ private fun ExerciseDateGrid(
                                 day = day,
                                 isSelected = sameDate(cellDate, selectedDate),
                                 isToday = sameDate(cellDate, today),
+                                enabled = cellDate.timeInMillis <= today.timeInMillis,
                                 onClick = { onDateSelected(formatDate(cellDate)) }
                             )
                         }
@@ -181,18 +188,23 @@ private fun ExerciseDateCell(
     day: Int,
     isSelected: Boolean,
     isToday: Boolean,
+    enabled: Boolean,
     onClick: () -> Unit
 ) {
     val backgroundColor = if (isSelected) DatePickerGreen else Color.Transparent
     val borderColor = if (!isSelected && isToday) DatePickerGreen else Color.Transparent
-    val textColor = if (isSelected) Color(0xFF06130E) else Color.White
+    val textColor = when {
+        !enabled && !isSelected -> Color.White.copy(alpha = 0.3f)
+        isSelected -> Color(0xFF06130E)
+        else -> Color.White
+    }
 
     Box(
         modifier = Modifier
             .size(40.dp)
             .background(backgroundColor, CircleShape)
             .border(1.dp, borderColor, CircleShape)
-            .clickable(onClick = onClick),
+            .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Text(
@@ -205,19 +217,14 @@ private fun ExerciseDateCell(
 }
 
 private fun parseDateOrToday(value: String): Calendar {
-    val formatter = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
-        isLenient = false
-    }
-    return runCatching {
-        val parsed = formatter.parse(value.trim())
-        Calendar.getInstance().apply {
-            time = parsed ?: Calendar.getInstance().time
-        }
-    }.getOrDefault(Calendar.getInstance()).let(::startOfDate)
+    val parsed = AppDateFormats.parseIsoDateStrict(value.trim())
+    return Calendar.getInstance().apply {
+        timeInMillis = parsed ?: System.currentTimeMillis()
+    }.let(::startOfDate)
 }
 
 private fun formatDate(date: Calendar): String {
-    return SimpleDateFormat("yyyy-MM-dd", Locale.US).format(date.time)
+    return AppDateFormats.formatIsoDate(date.timeInMillis)
 }
 
 private fun startOfDate(date: Calendar): Calendar {

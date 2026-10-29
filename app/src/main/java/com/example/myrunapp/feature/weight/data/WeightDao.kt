@@ -10,9 +10,6 @@ interface WeightDao {
     @Upsert
     suspend fun upsertWeight(record: WeightRecordEntity)
 
-    @Query("SELECT * FROM weight_records ORDER BY date DESC LIMIT 1")
-    fun observeLatestWeight(): Flow<WeightRecordEntity?>
-
     @Query("SELECT * FROM weight_records ORDER BY date ASC")
     fun observeAllWeights(): Flow<List<WeightRecordEntity>>
 

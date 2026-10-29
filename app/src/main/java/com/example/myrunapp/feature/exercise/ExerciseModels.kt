@@ -56,7 +56,8 @@ data class ExerciseRecordUiModel(
     val paceText: String,
     val caloriesText: String,
     val runSessionId: Long? = null,
-    val trackPoints: List<RunTrackPointUiModel> = emptyList()
+    val trackPoints: List<RunTrackPointUiModel> = emptyList(),
+    val inclinePercent: Double? = null
 )
 
 data class ExerciseRecordDetailUiState(
@@ -162,6 +163,9 @@ data class ExerciseUiState(
     val goal: ExerciseGoalUiState = ExerciseGoalUiState(),
     val isAddDialogVisible: Boolean = false,
     val editingExerciseRecordId: Long? = null,
+    val editingOriginalStartTime: Long? = null,
+    val editingOriginalDurationSeconds: Long? = null,
+    val durationSelectionChanged: Boolean = false,
     val isGoalDialogVisible: Boolean = false,
     val inputType: ExerciseType = ExerciseType.TREADMILL,
     val inputDate: String = "",

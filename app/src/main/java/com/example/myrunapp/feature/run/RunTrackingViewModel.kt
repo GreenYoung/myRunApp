@@ -13,14 +13,21 @@ import com.example.myrunapp.core.log.AppLogger
 import com.example.myrunapp.core.log.LogTags
 import com.example.myrunapp.feature.exercise.formatPace
 import com.example.myrunapp.feature.run.data.RunDao
+import com.example.myrunapp.feature.run.data.RunDraftDao
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+
+private const val SaveResultTimeoutMs = 30_000L
 
 private data class RunPermissionState(
     val hasLocationPermission: Boolean = false,
@@ -29,9 +36,15 @@ private data class RunPermissionState(
 
 class RunTrackingViewModel(
     private val appContext: Context,
-    private val runDao: RunDao
+    private val runDao: RunDao,
+    private val runDraftDao: RunDraftDao
 ) : ViewModel() {
     private val permissionState = MutableStateFlow(currentPermissionState())
+    private var finishRequestPending = false
+
+    init {
+        restoreDraftIfNeeded()
+    }
 
     val uiState = combine(
         RunTrackingStateStore.state,
@@ -102,6 +115,122 @@ class RunTrackingViewModel(
         appContext.startService(RunTrackingService.discardIntent(appContext))
     }
 
+    fun continueRecoveredDraft() {
+        if (uiState.value.isTracking) return
+        AppLogger.i(LogTags.RUN, "continue recovered draft requested")
+        RunTrackingStateStore.update { it.copy(errorMessage = null) }
+        val started = runCatching {
+            ContextCompat.startForegroundService(appContext, RunTrackingService.continueDraftIntent(appContext))
+        }.isSuccess
+        if (!started) {
+            RunTrackingStateStore.update {
+                it.copy(errorMessage = "无法恢复跑步记录，请重试")
+            }
+        }
+    }
+
+    fun saveRecoveredDraft(onSaved: (Long) -> Unit) {
+        if (finishRequestPending || uiState.value.isSaving) return
+        if (!uiState.value.hasRecoveredDraft) return
+        finishRequestPending = true
+        viewModelScope.launch {
+            try {
+                AppLogger.i(LogTags.RUN, "save recovered draft requested")
+                RunTrackingStateStore.clearSaveResult()
+                val started = runCatching {
+                    appContext.startService(RunTrackingService.saveDraftIntent(appContext))
+                }.isSuccess
+                if (!started) {
+                    RunTrackingStateStore.update {
+                        it.copy(isSaving = false, errorMessage = "无法启动保存服务，请重试")
+                    }
+                    return@launch
+                }
+                val result = withTimeoutOrNull(SaveResultTimeoutMs) {
+                    RunTrackingStateStore.saveResult.filterNotNull().first()
+                }
+                RunTrackingStateStore.clearSaveResult()
+                when (result) {
+                    is RunSaveResult.Success -> {
+                        AppLogger.i(LogTags.RUN, "recovered draft saved sessionId=${result.sessionId}")
+                        RunTrackingStateStore.reset()
+                        onSaved(result.sessionId)
+                    }
+                    is RunSaveResult.Failure -> {
+                        RunTrackingStateStore.update {
+                            it.copy(isSaving = false, errorMessage = result.message)
+                        }
+                    }
+                    null -> {
+                        RunTrackingStateStore.update {
+                            it.copy(isSaving = false, errorMessage = "保存超时，请重试")
+                        }
+                    }
+                }
+            } finally {
+                finishRequestPending = false
+            }
+        }
+    }
+
+    fun discardRecoveredDraft() {
+        if (uiState.value.isTracking) return
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    runDraftDao.clearPoints()
+                    runDraftDao.clearDraft()
+                }.onFailure {
+                    AppLogger.e(LogTags.DATABASE, "clear recovered run draft failed", it)
+                }
+            }
+            AppLogger.i(LogTags.RUN, "recovered draft discarded")
+            RunTrackingStateStore.reset()
+        }
+    }
+
+    private fun restoreDraftIfNeeded() {
+        viewModelScope.launch {
+            val current = RunTrackingStateStore.state.value
+            if (current.isTracking || current.isServiceRunning || current.hasRecoveredDraft) return@launch
+            val draft = withContext(Dispatchers.IO) { runDraftDao.getDraft() } ?: return@launch
+            if (draft.durationSeconds <= 0L && draft.totalDistanceMeters <= 0.0) {
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        runDraftDao.clearPoints()
+                        runDraftDao.clearDraft()
+                    }
+                }
+                return@launch
+            }
+            val points = withContext(Dispatchers.IO) { runDraftDao.getPoints() }
+            val distanceKm = draft.totalDistanceMeters / 1000.0
+            AppLogger.i(
+                LogTags.RUN,
+                "recovered unfinished run draft startTime=${draft.startTime} duration=${draft.durationSeconds}s " +
+                    "distance=${distanceKm}km points=${points.size}"
+            )
+            RunTrackingStateStore.update {
+                if (it.isTracking || it.isServiceRunning) return@update it
+                it.copy(
+                    isTracking = false,
+                    isPaused = false,
+                    isServiceRunning = false,
+                    isSaving = false,
+                    hasRecoveredDraft = true,
+                    gpsStatusText = "发现未完成的跑步记录",
+                    distanceKm = distanceKm,
+                    durationSeconds = draft.durationSeconds,
+                    averagePaceText = formatPace(draft.durationSeconds, distanceKm),
+                    caloriesKcal = draft.caloriesKcal,
+                    canSave = points.size >= 2 && draft.durationSeconds > 0L && distanceKm > 0.0,
+                    trackPoints = points.map { it.toRunTrackPointUiModel() },
+                    errorMessage = null
+                )
+            }
+        }
+    }
+
     fun pauseTracking() {
         AppLogger.i(LogTags.RUN, "pause requested from ViewModel")
         appContext.startService(RunTrackingService.pauseIntent(appContext))
@@ -112,24 +241,58 @@ class RunTrackingViewModel(
         appContext.startService(RunTrackingService.resumeIntent(appContext))
     }
 
-    fun finishTracking(onSaved: (Long) -> Unit) {
-        if (uiState.value.isSaving) return
+    fun finishTracking(onSaved: (Long) -> Unit, onDiscarded: () -> Unit) {
+        if (finishRequestPending || uiState.value.isSaving) return
         if (!uiState.value.canSave) {
-            AppLogger.w(
+            AppLogger.i(
                 LogTags.RUN,
-                "finish blocked: canSave=false duration=${uiState.value.durationSeconds}s distance=${uiState.value.distanceKm} points=${uiState.value.trackPoints.size}"
+                "finish with too little data, discarding run duration=${uiState.value.durationSeconds}s " +
+                    "distance=${uiState.value.distanceKm} points=${uiState.value.trackPoints.size}"
             )
-            RunTrackingStateStore.update {
-                it.copy(errorMessage = "本次跑步数据太少，无法保存")
-            }
+            stopWithoutSaving()
+            onDiscarded()
             return
         }
+        finishRequestPending = true
         viewModelScope.launch {
-            AppLogger.i(LogTags.RUN, "finish requested from ViewModel")
-            appContext.startService(RunTrackingService.finishIntent(appContext))
-            val sessionId = RunTrackingStateStore.savedSessionIds.first()
-            AppLogger.i(LogTags.RUN, "saved session received sessionId=$sessionId")
-            onSaved(sessionId)
+            try {
+                AppLogger.i(LogTags.RUN, "finish requested from ViewModel")
+                RunTrackingStateStore.clearSaveResult()
+                val started = runCatching {
+                    appContext.startService(RunTrackingService.finishIntent(appContext))
+                }.isSuccess
+                if (!started) {
+                    RunTrackingStateStore.update {
+                        it.copy(isSaving = false, errorMessage = "无法启动保存服务，请重试")
+                    }
+                    return@launch
+                }
+                val result = withTimeoutOrNull(SaveResultTimeoutMs) {
+                    RunTrackingStateStore.saveResult.filterNotNull().first()
+                }
+                RunTrackingStateStore.clearSaveResult()
+                when (result) {
+                    is RunSaveResult.Success -> {
+                        AppLogger.i(LogTags.RUN, "saved session received sessionId=${result.sessionId}")
+                        RunTrackingStateStore.reset()
+                        onSaved(result.sessionId)
+                    }
+                    is RunSaveResult.Failure -> {
+                        AppLogger.w(LogTags.RUN, "save failed: ${result.message}")
+                        RunTrackingStateStore.update {
+                            it.copy(isSaving = false, errorMessage = result.message)
+                        }
+                    }
+                    null -> {
+                        AppLogger.w(LogTags.RUN, "save result timeout")
+                        RunTrackingStateStore.update {
+                            it.copy(isSaving = false, errorMessage = "保存超时，请重试")
+                        }
+                    }
+                }
+            } finally {
+                finishRequestPending = false
+            }
         }
     }
 
@@ -189,12 +352,13 @@ class RunTrackingViewModel(
 
 class RunTrackingViewModelFactory(
     private val appContext: Context,
-    private val runDao: RunDao
+    private val runDao: RunDao,
+    private val runDraftDao: RunDraftDao
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(RunTrackingViewModel::class.java)) {
-            return RunTrackingViewModel(appContext, runDao) as T
+            return RunTrackingViewModel(appContext, runDao, runDraftDao) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
     }

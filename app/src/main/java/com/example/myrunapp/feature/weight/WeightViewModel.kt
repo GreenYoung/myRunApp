@@ -3,6 +3,8 @@ package com.example.myrunapp.feature.weight
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.room.withTransaction
+import com.example.myrunapp.core.data.AppDatabase
 import com.example.myrunapp.feature.exercise.data.ExerciseDao
 import com.example.myrunapp.feature.weight.data.WeightDao
 import com.example.myrunapp.feature.weight.data.WeightRecordEntity
@@ -14,7 +16,23 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+private data class WeightDataState(
+    val points: List<WeightPoint>,
+    val latest: WeightRecordEntity?,
+    val first: WeightRecordEntity?,
+    val previousChange: Double?,
+    val totalChange: Double?,
+    val weeklyChange: Double?,
+    val recentRecords: List<WeightRecordItem>,
+    val trendRecords: List<WeightTrendPointUiState>,
+    val exerciseCorrelation: WeightExerciseCorrelationUiState,
+    val todayRecord: WeightRecordEntity?,
+    val targetWeight: Double?,
+    val heightCm: Double?
+)
+
 class WeightViewModel(
+    private val database: AppDatabase,
     private val weightDao: WeightDao,
     private val exerciseDao: ExerciseDao,
     private val targetWeightRepository: TargetWeightRepository
@@ -23,19 +41,18 @@ class WeightViewModel(
         WeightUiState(inputDate = todayIsoDate())
     )
 
-    val uiState = combine(
+    private val weightDataState = combine(
         weightDao.observeAllWeights(),
         exerciseDao.observeAllExercises(),
         targetWeightRepository.targetWeightKg,
-        targetWeightRepository.heightCm,
-        inputState
-    ) { records, exercises, targetWeight, heightCm, input ->
-        val points = records.map { WeightPoint(it.date, it.weightKg) }
-        val latest = records.maxByOrNull { it.date }
-        val first = records.minByOrNull { it.date }
-        val previous = records
-            .filter { latest != null && it.date < latest.date }
-            .maxByOrNull { it.date }
+        targetWeightRepository.heightCm
+    ) { records, exercises, targetWeight, heightCm ->
+        val today = todayIsoDate()
+        val statsRecords = records.filter { it.date <= today }.sortedBy { it.date }
+        val points = statsRecords.map { WeightPoint(it.date, it.weightKg) }
+        val latest = statsRecords.lastOrNull()
+        val first = statsRecords.firstOrNull()
+        val previous = statsRecords.dropLast(1).lastOrNull()
         val previousChange = if (latest != null && previous != null) {
             latest.weightKg - previous.weightKg
         } else {
@@ -46,85 +63,96 @@ class WeightViewModel(
         } else {
             null
         }
-        val weeklyRecords = latest?.date?.let { latestDate ->
-            filterWeightPointsByRange(points, latestDate, WeightRange.DAYS_7)
-        }.orEmpty()
+        val weeklyRecords = filterWeightPointsByRange(points, WeightRange.DAYS_7)
         val weeklyChange = if (weeklyRecords.size >= 2) {
             weeklyRecords.last().weightKg - weeklyRecords.first().weightKg
         } else {
             null
         }
-        val recentRecords = records
-            .sortedByDescending { it.date }
-            .map { record ->
-                val previousRecord = records
-                    .filter { it.date < record.date }
-                    .maxByOrNull { it.date }
-                WeightRecordItem(
-                    date = record.date,
-                    weightKg = record.weightKg,
-                    previousChange = previousRecord?.let { record.weightKg - it.weightKg },
-                    note = record.note
-                )
-            }
-        val trendRecords = records
+        val changeByDate = statsRecords
             .sortedBy { it.date }
-            .map { record ->
-                val previousRecord = records
-                    .filter { it.date < record.date }
-                    .maxByOrNull { it.date }
-                WeightTrendPointUiState(
-                    date = record.date,
-                    weightKg = record.weightKg,
-                    previousChange = previousRecord?.let { record.weightKg - it.weightKg },
-                    note = record.note
-                )
+            .zipWithNext { previousRecord, currentRecord ->
+                currentRecord.date to (currentRecord.weightKg - previousRecord.weightKg)
             }
-        val filteredTrendRecords = filterWeightTrendPointsByRange(
-            records = trendRecords,
-            latestDate = latest?.date,
-            range = input.weightTrend.selectedRange
+            .toMap()
+        val trendRecords = statsRecords.map { record ->
+            WeightTrendPointUiState(
+                date = record.date,
+                weightKg = record.weightKg,
+                previousChange = changeByDate[record.date],
+                note = record.note
+            )
+        }
+        val recentRecords = statsRecords.asReversed().map { record ->
+            WeightRecordItem(
+                date = record.date,
+                weightKg = record.weightKg,
+                previousChange = changeByDate[record.date],
+                note = record.note
+            )
+        }
+        WeightDataState(
+            points = points,
+            latest = latest,
+            first = first,
+            previousChange = previousChange,
+            totalChange = totalChange,
+            weeklyChange = weeklyChange,
+            recentRecords = recentRecords,
+            trendRecords = trendRecords,
+            exerciseCorrelation = buildWeightExerciseCorrelation(points, exercises),
+            todayRecord = statsRecords.firstOrNull { it.date == today },
+            targetWeight = targetWeight,
+            heightCm = heightCm
         )
-        val today = todayIsoDate()
-        val todayRecord = records.firstOrNull { it.date == today }
+    }
+
+    val uiState = combine(
+        weightDataState,
+        inputState
+    ) { data, input ->
+        val latest = data.latest
         input.copy(
             latestWeightKg = latest?.weightKg,
             latestDate = latest?.date,
-            todayWeightKg = todayRecord?.weightKg,
+            todayWeightKg = data.todayRecord?.weightKg,
             weightCard = WeightCardUiState(
-                todayWeight = todayRecord?.weightKg,
-                hasTodayWeight = todayRecord != null,
+                todayWeight = data.todayRecord?.weightKg,
+                hasTodayWeight = data.todayRecord != null,
                 latestWeight = latest?.weightKg,
                 latestDate = latest?.date,
-                previousChange = previousChange,
-                totalChange = totalChange
+                previousChange = data.previousChange,
+                totalChange = data.totalChange
             ),
             weightDetail = WeightDetailUiState(
                 latestWeight = latest?.weightKg,
-                previousChange = previousChange,
-                totalChange = totalChange,
-                weeklyChange = weeklyChange,
-                firstWeight = first?.weightKg,
-                targetWeight = targetWeight,
-                remainingWeight = calculateRemainingWeight(latest?.weightKg, targetWeight),
-                targetProgress = calculateTargetProgress(first?.weightKg, latest?.weightKg, targetWeight),
+                previousChange = data.previousChange,
+                totalChange = data.totalChange,
+                weeklyChange = data.weeklyChange,
+                firstWeight = data.first?.weightKg,
+                targetWeight = data.targetWeight,
+                remainingWeight = calculateRemainingWeight(latest?.weightKg, data.targetWeight),
+                targetProgress = calculateTargetProgress(data.first?.weightKg, latest?.weightKg, data.targetWeight),
                 latestDate = latest?.date,
-                bmi = calculateBmiUiState(latest?.weightKg, heightCm),
-                changeSpeed = buildWeightChangeSpeed(points, latest?.date, input.weightDetail.selectedRange),
-                exerciseCorrelation = buildWeightExerciseCorrelation(points, exercises, latest?.date),
+                bmi = calculateBmiUiState(latest?.weightKg, data.heightCm),
+                changeSpeed = buildWeightChangeSpeed(data.points, input.weightDetail.selectedRange),
+                exerciseCorrelation = data.exerciseCorrelation,
                 selectedRange = input.weightDetail.selectedRange,
-                chartRecords = filterWeightPointsByRange(points, latest?.date, input.weightDetail.selectedRange),
-                recentRecords = recentRecords
+                chartRecords = filterWeightPointsByRange(data.points, input.weightDetail.selectedRange),
+                recentRecords = data.recentRecords
             ),
             weightTrend = WeightTrendUiState(
                 selectedRange = input.weightTrend.selectedRange,
-                records = filteredTrendRecords,
-                targetWeight = targetWeight,
+                records = filterWeightTrendPointsByRange(
+                    records = data.trendRecords,
+                    range = input.weightTrend.selectedRange
+                ),
+                targetWeight = data.targetWeight,
                 latestWeight = latest?.weightKg,
-                remainingWeight = calculateRemainingWeight(latest?.weightKg, targetWeight),
-                changeSpeed = buildWeightChangeSpeed(points, latest?.date, input.weightTrend.selectedRange)
+                remainingWeight = calculateRemainingWeight(latest?.weightKg, data.targetWeight),
+                changeSpeed = buildWeightChangeSpeed(data.points, input.weightTrend.selectedRange)
             ),
-            records = points
+            records = data.points
         )
     }.stateIn(
         scope = viewModelScope,
@@ -254,21 +282,25 @@ class WeightViewModel(
         }
 
         val now = System.currentTimeMillis()
+        val weightKg = validation.weightKg ?: return
         viewModelScope.launch {
             val editingDate = current.editingWeightDate
-            if (editingDate != null && editingDate != current.inputDate) {
-                weightDao.deleteWeightByDate(editingDate)
-            }
-            val existing = weightDao.getWeightByDate(current.inputDate)
-            weightDao.upsertWeight(
-                WeightRecordEntity(
-                    date = current.inputDate,
-                    weightKg = validation.weightKg ?: return@launch,
-                    note = current.inputNote.trim().takeIf { it.isNotEmpty() },
-                    createdAt = existing?.createdAt ?: now,
-                    updatedAt = now
+            // 换日期时"删除旧日期 + 写入新日期"必须作为整体成功或失败。
+            database.withTransaction {
+                if (editingDate != null && editingDate != current.inputDate) {
+                    weightDao.deleteWeightByDate(editingDate)
+                }
+                val existing = weightDao.getWeightByDate(current.inputDate)
+                weightDao.upsertWeight(
+                    WeightRecordEntity(
+                        date = current.inputDate,
+                        weightKg = weightKg,
+                        note = current.inputNote.trim().takeIf { it.isNotEmpty() },
+                        createdAt = existing?.createdAt ?: now,
+                        updatedAt = now
+                    )
                 )
-            )
+            }
             inputState.update {
                 it.copy(
                     isRecordDialogVisible = false,
@@ -290,6 +322,7 @@ class WeightViewModel(
 }
 
 class WeightViewModelFactory(
+    private val database: AppDatabase,
     private val weightDao: WeightDao,
     private val exerciseDao: ExerciseDao,
     private val targetWeightRepository: TargetWeightRepository
@@ -297,7 +330,7 @@ class WeightViewModelFactory(
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(WeightViewModel::class.java)) {
-            return WeightViewModel(weightDao, exerciseDao, targetWeightRepository) as T
+            return WeightViewModel(database, weightDao, exerciseDao, targetWeightRepository) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
     }

@@ -2,6 +2,7 @@ package com.example.myrunapp
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -55,11 +56,13 @@ class MainActivity : ComponentActivity() {
         val targetWeightRepository = TargetWeightRepository(applicationContext)
         val exerciseGoalRepository = ExerciseGoalRepository(applicationContext)
         val weightViewModelFactory = WeightViewModelFactory(
+            database,
             database.weightDao(),
             database.exerciseDao(),
             targetWeightRepository
         )
         val exerciseViewModelFactory = ExerciseViewModelFactory(
+            database,
             database.exerciseDao(),
             database.runDao(),
             database.weightDao(),
@@ -67,7 +70,8 @@ class MainActivity : ComponentActivity() {
         )
         val runTrackingViewModelFactory = RunTrackingViewModelFactory(
             applicationContext,
-            database.runDao()
+            database.runDao(),
+            database.runDraftDao()
         )
 
         setContent {
@@ -99,6 +103,10 @@ class MainActivity : ComponentActivity() {
                         AppDestination.ExerciseStatsDetail -> AppDestination.Exercise
                         AppDestination.Home -> AppDestination.Home
                     }
+                }
+
+                BackHandler(enabled = destination != AppDestination.Home) {
+                    navigateBack()
                 }
 
                 SwipeBackContainer(

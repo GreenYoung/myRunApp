@@ -1,9 +1,13 @@
 package com.example.myrunapp.feature.run.data
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "run_track_points")
+@Entity(
+    tableName = "run_track_points",
+    indices = [Index(value = ["sessionId", "recordedAt"])]
+)
 data class RunTrackPointEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val sessionId: Long,
