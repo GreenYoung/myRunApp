@@ -4,6 +4,7 @@ import android.content.res.Configuration
 import android.graphics.Paint
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -13,13 +14,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -32,8 +30,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
@@ -44,7 +44,6 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
@@ -63,6 +62,8 @@ private val TrendGreen = Color(0xFF22C55E)
 private val TrendRed = Color(0xFFF87171)
 private val TrendCardDark = Color(0xFF111820)
 private val TrendCardLight = Color(0xFF151E26)
+private val WeightTrendHeroTop = Color(0xFF17251D)
+private val WeightTrendHeroBottom = Color(0xFF0C1319)
 
 @Composable
 fun WeightTrendRoute(
@@ -124,6 +125,7 @@ fun WeightTrendScreen(
                     onPointSelected = { selectedIndex = it },
                     isLandscape = true,
                     isFullscreen = true,
+                    onRangeChange = onRangeChange,
                     onChartDoubleTap = {},
                     modifier = Modifier
                         .fillMaxSize()
@@ -135,16 +137,16 @@ fun WeightTrendScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(
-                        start = PageHorizontalPadding,
+                        start = 20.dp,
                         top = PageTopSpacing,
-                        end = PageHorizontalPadding,
+                        end = 20.dp,
                         bottom = if (isLandscape) 10.dp else 18.dp
                     ),
                 verticalArrangement = Arrangement.spacedBy(if (isLandscape) 8.dp else 14.dp)
             ) {
                 AppPageTopBar(title = "体重趋势", showBackButton = true, onBackClick = onBack)
                 if (!isLandscape) {
-                    WeightTrendRangeSelector(selected = uiState.selectedRange, onRangeChange = onRangeChange)
+                    WeightTrendSummaryCard(uiState = uiState)
                 }
                 WeightTrendChartCard(
                     uiState = uiState,
@@ -152,14 +154,12 @@ fun WeightTrendScreen(
                     onPointSelected = { selectedIndex = it },
                     isLandscape = isLandscape,
                     isFullscreen = false,
+                    onRangeChange = onRangeChange,
                     onChartDoubleTap = { isFullscreenChart = true },
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
                 )
-                if (isLandscape) {
-                    WeightTrendRangeSelector(selected = uiState.selectedRange, onRangeChange = onRangeChange)
-                }
             }
         }
     }
@@ -172,29 +172,31 @@ private fun WeightTrendRangeSelector(
     modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(TrendCardDark, RoundedCornerShape(18.dp))
-            .padding(6.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         WeightRange.entries.forEach { range ->
             val isSelected = selected == range
             Box(
                 modifier = Modifier
                     .weight(1f)
+                    .clip(RoundedCornerShape(50))
                     .background(
-                        color = if (isSelected) TrendGreen.copy(alpha = 0.20f) else Color.Transparent,
-                        shape = RoundedCornerShape(12.dp)
+                        if (isSelected) TrendGreen.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.05f)
+                    )
+                    .border(
+                        width = 1.dp,
+                        color = if (isSelected) TrendGreen.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.08f),
+                        shape = RoundedCornerShape(50)
                     )
                     .clickable { onRangeChange(range) }
-                    .padding(vertical = 10.dp),
+                    .padding(vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = range.label,
                     color = if (isSelected) TrendGreen else AppSecondaryText,
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                 )
             }
@@ -209,52 +211,46 @@ private fun WeightTrendChartCard(
     onPointSelected: (Int) -> Unit,
     isLandscape: Boolean,
     isFullscreen: Boolean,
+    onRangeChange: (WeightRange) -> Unit,
     onChartDoubleTap: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(if (isFullscreen || isLandscape) 16.dp else 20.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        colors = CardDefaults.cardColors(containerColor = TrendCardDark)
+    val shape = RoundedCornerShape(if (isFullscreen) 16.dp else 22.dp)
+    Column(
+        modifier = modifier
+            .clip(shape)
+            .background(Brush.linearGradient(listOf(TrendCardLight, TrendCardDark)))
+            .border(1.dp, Color.White.copy(alpha = 0.08f), shape)
+            .padding(if (isLandscape) 10.dp else 14.dp),
+        verticalArrangement = Arrangement.spacedBy(if (isLandscape) 8.dp else 10.dp)
     ) {
-        Box(
+        if (!isFullscreen) {
+            WeightTrendRangeSelector(selected = uiState.selectedRange, onRangeChange = onRangeChange)
+        }
+        if (uiState.records.isEmpty()) {
+            WeightTrendEmptyState(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            )
+            return@Column
+        }
+        WeightTrendChart(
+            records = uiState.records,
+            targetWeight = uiState.targetWeight,
+            selectedIndex = selectedIndex.coerceIn(0, uiState.records.lastIndex),
+            onPointSelected = onPointSelected,
+            onDoubleTap = onChartDoubleTap,
+            showBottomDateLabels = !isFullscreen,
+            isFullscreen = isFullscreen,
             modifier = Modifier
-                .fillMaxSize()
-                .background(TrendCardLight.copy(alpha = 0.20f))
-                .padding(if (isLandscape) 10.dp else 14.dp)
-        ) {
-            if (uiState.records.isEmpty()) {
-                WeightTrendEmptyState(modifier = Modifier.fillMaxSize())
-            } else {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(if (isLandscape || isFullscreen) 6.dp else 12.dp)
-                ) {
-                    if (!isLandscape && !isFullscreen) {
-                        Text("体重变化", color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    }
-                    WeightTrendChart(
-                        records = uiState.records,
-                        targetWeight = uiState.targetWeight,
-                        selectedIndex = selectedIndex.coerceIn(0, uiState.records.lastIndex),
-                        onPointSelected = onPointSelected,
-                        onDoubleTap = onChartDoubleTap,
-                        showBottomDateLabels = !isFullscreen,
-                        isFullscreen = isFullscreen,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                    )
-                    if (!isFullscreen) {
-                        WeightTrendSelectedInfo(
-                            point = uiState.records.getOrNull(selectedIndex.coerceIn(0, uiState.records.lastIndex)),
-                            isLandscape = isLandscape
-                        )
-                        WeightTrendGoalSummary(uiState = uiState, isLandscape = isLandscape)
-                    }
-                }
-            }
+                .fillMaxWidth()
+                .weight(1f)
+        )
+        if (!isFullscreen) {
+            WeightTrendSelectedLine(
+                point = uiState.records.getOrNull(selectedIndex.coerceIn(0, uiState.records.lastIndex))
+            )
         }
     }
 }
@@ -269,72 +265,133 @@ private fun WeightTrendEmptyState(modifier: Modifier = Modifier) {
     }
 }
 
+/** 顶部概要卡：当前体重 + 区间变化 + 距目标，替代原来那条四列小字。 */
 @Composable
-private fun WeightTrendGoalSummary(
-    uiState: WeightTrendUiState,
-    isLandscape: Boolean,
-    modifier: Modifier = Modifier
-) {
-    if (isLandscape) return
+private fun WeightTrendSummaryCard(uiState: WeightTrendUiState) {
+    val firstWeight = uiState.records.firstOrNull()?.weightKg
+    val latestWeight = uiState.latestWeight ?: uiState.records.lastOrNull()?.weightKg
+    val rangeChange = if (firstWeight != null && latestWeight != null) latestWeight - firstWeight else null
 
-    Row(
-        modifier = modifier
+    Box(
+        modifier = Modifier
             .fillMaxWidth()
-            .height(48.dp)
-            .background(Color(0x660C1218), RoundedCornerShape(14.dp))
-            .padding(horizontal = 14.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+            .clip(RoundedCornerShape(24.dp))
+            .background(Brush.linearGradient(listOf(WeightTrendHeroTop, WeightTrendHeroBottom)))
+            .border(1.dp, Color(0x14FFFFFF), RoundedCornerShape(24.dp))
     ) {
-        TrendInfoItem(title = "当前", value = uiState.latestWeight?.let { "${formatWeight(it)} kg" } ?: "--", modifier = Modifier.weight(1f))
-        TrendInfoItem(title = "目标", value = uiState.targetWeight?.let { "${formatWeight(it)} kg" } ?: "未设置", modifier = Modifier.weight(1f))
-        TrendInfoItem(title = "距目标", value = uiState.remainingWeight?.let { "${formatWeight(it)} kg" } ?: "--", color = TrendGreen, modifier = Modifier.weight(1f))
-        TrendInfoItem(title = uiState.changeSpeed.label, value = uiState.changeSpeed.description, color = uiState.changeSpeed.weeklyChangeKg.toTrendChangeColor(), modifier = Modifier.weight(1f))
+        Canvas(modifier = Modifier.matchParentSize()) {
+            val center = Offset(size.width * 0.92f, size.height * 0.05f)
+            val radius = size.width * 0.7f
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(TrendGreen.copy(alpha = 0.16f), Color.Transparent),
+                    center = center,
+                    radius = radius
+                ),
+                radius = radius,
+                center = center
+            )
+        }
+        Column(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("当前体重", color = AppSecondaryText, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                Text(
+                    text = uiState.records.lastOrNull()?.date?.takeLast(5) ?: "暂无记录",
+                    color = AppSecondaryText,
+                    fontSize = 12.sp
+                )
+            }
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    text = latestWeight?.let(::formatWeight) ?: "--.--",
+                    color = Color.White,
+                    fontSize = 44.sp,
+                    lineHeight = 46.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = " kg",
+                    color = AppSecondaryText,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TrendChip(
+                    text = "区间 ${rangeChange.toSignedTrendText()}",
+                    color = rangeChange.toTrendChangeColor()
+                )
+                TrendChip(
+                    text = uiState.remainingWeight?.let { "距目标 ${formatWeight(it)} kg" } ?: "未设置目标",
+                    color = TrendGreen
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun WeightTrendSelectedInfo(
-    point: WeightTrendPointUiState?,
-    isLandscape: Boolean,
-    modifier: Modifier = Modifier
-) {
+private fun TrendChip(text: String, color: Color) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(color.copy(alpha = 0.14f))
+            .padding(horizontal = 10.dp, vertical = 5.dp)
+    ) {
+        Text(
+            text = text,
+            color = color,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1
+        )
+    }
+}
+
+/** 选中点的一行信息：日期 · 体重 · 较上次。 */
+@Composable
+private fun WeightTrendSelectedLine(point: WeightTrendPointUiState?, modifier: Modifier = Modifier) {
     if (point == null) return
 
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(if (isLandscape) 48.dp else 62.dp)
-            .background(Color(0x990C1218), RoundedCornerShape(14.dp))
-            .padding(horizontal = 14.dp),
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0x660C1218))
+            .padding(horizontal = 12.dp, vertical = 9.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        TrendInfoItem(title = "日期", value = point.date.substring(5), modifier = Modifier.weight(1f))
-        TrendInfoItem(title = "体重", value = "${formatWeight(point.weightKg)} kg", modifier = Modifier.weight(1f))
-        TrendInfoItem(
-            title = "较上次",
-            value = point.previousChange.toSignedTrendText(),
-            color = point.previousChange.toTrendChangeColor(),
-            modifier = Modifier.weight(1f)
+        Text(
+            text = point.date.takeLast(5),
+            color = AppSecondaryText,
+            fontSize = 12.sp,
+            maxLines = 1
         )
-    }
-}
-
-@Composable
-private fun TrendInfoItem(
-    title: String,
-    value: String,
-    modifier: Modifier = Modifier,
-    color: Color = Color.White
-) {
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(3.dp)
-    ) {
-        Text(title, color = AppSecondaryText, style = MaterialTheme.typography.bodySmall, maxLines = 1)
-        Text(value, color = color, fontWeight = FontWeight.Bold, maxLines = 1, textAlign = TextAlign.Center)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "${formatWeight(point.weightKg)} kg",
+                color = Color.White,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
+            )
+            Text(
+                text = point.previousChange.toSignedTrendText(),
+                color = point.previousChange.toTrendChangeColor(),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1
+            )
+        }
     }
 }
 

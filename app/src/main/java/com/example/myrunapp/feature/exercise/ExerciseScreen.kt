@@ -39,10 +39,15 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.myrunapp.feature.run.formatRunClock
 import com.example.myrunapp.ui.components.AppPageTopBar
 import com.example.myrunapp.ui.components.AppPrimaryButton
 import com.example.myrunapp.ui.components.AppSecondaryButton
 import com.example.myrunapp.ui.components.PageTopSpacing
+import com.example.myrunapp.ui.dialogs.AddExerciseRecordDialog
+import com.example.myrunapp.ui.dialogs.DeleteExerciseRecordDialog
+import com.example.myrunapp.ui.dialogs.ExerciseGoalDialog
+import com.example.myrunapp.ui.dialogs.ExerciseRecordActionDialog
 import com.example.myrunapp.ui.theme.AppBackground
 import com.example.myrunapp.ui.theme.AppSecondaryText
 import com.example.myrunapp.ui.theme.MyRunAppTheme
@@ -314,7 +319,7 @@ private fun ExerciseSummaryCard(
             HorizontalDivider(color = ExerciseDivider)
             Row(modifier = Modifier.fillMaxWidth()) {
                 ExerciseHeroStat("累计运动", "${records.size}", "次", Modifier.weight(1f))
-                ExerciseHeroStat("总时长", formatDuration(totalDurationSeconds), "", Modifier.weight(1f))
+                ExerciseHeroStat("总时长", formatRunClock(totalDurationSeconds), "", Modifier.weight(1f))
                 ExerciseHeroStat("总消耗", formatCaloriesCompact(detail.totalCaloriesKcal), "kcal", Modifier.weight(1f))
             }
             Row(modifier = Modifier.fillMaxWidth()) {
@@ -352,6 +357,8 @@ private fun ExerciseHeroStat(
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        // 数值和单位都显式用同一个 style（不继承主题的 lineHeight），
+        // 这样"有单位/没单位"的三列数值行高度一致，标签才会落在同一水平线上。
         Row {
             Text(
                 text = value,
@@ -359,6 +366,7 @@ private fun ExerciseHeroStat(
                 fontSize = 17.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
+                softWrap = false,
                 style = ExerciseTabularNumbers,
                 modifier = Modifier.alignByBaseline()
             )
@@ -368,6 +376,8 @@ private fun ExerciseHeroStat(
                     color = AppSecondaryText,
                     fontSize = 10.sp,
                     maxLines = 1,
+                    softWrap = false,
+                    style = ExerciseTabularNumbers,
                     modifier = Modifier.alignByBaseline()
                 )
             }
@@ -460,7 +470,7 @@ private fun ExerciseDetailScreenPreview() {
                         ExerciseRecordUiModel(2, ExerciseType.OUTDOOR_RUNNING, 1_776_960_000_000, 5_460, 4.80, "户外", "2026-08-20", "4.80 km", "1h31min", "6'35\"/km", "328 kcal")
                     )
                 ),
-                goal = ExerciseGoalUiState(weeklyGoalKm = 40.0, monthlyGoalKm = 100.0)
+                goal = ExerciseGoalUiState(weeklyGoalKm = 20.0, monthlyGoalKm = 80.0)
             ),
             onBack = {},
             onAddClick = {},

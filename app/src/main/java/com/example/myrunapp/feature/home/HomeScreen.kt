@@ -147,7 +147,10 @@ private fun HomeHeader(
                 fontWeight = FontWeight.Bold
             )
         }
-        StreakPill(streakDays = streakDays)
+        // 连续运动超过 1 天才展示连击标签；0 天或只有 1 天时整个标签隐藏
+        if (streakDays > 1) {
+            StreakPill(streakDays = streakDays)
+        }
     }
 }
 
@@ -409,13 +412,13 @@ private fun StartRunButton(
     ) {
         Text(
             text = "▶",
-            color = Color(0xFF06210F),
+            color = Color.White,
             fontSize = 13.sp,
             fontWeight = FontWeight.Bold
         )
         Text(
             text = " 开始运动",
-            color = Color(0xFF06210F),
+            color = Color.White,
             fontSize = 15.sp,
             fontWeight = FontWeight.Bold
         )
@@ -759,17 +762,17 @@ private fun HomeScreenPreview() {
             exerciseUiState = ExerciseUiState(
                 summary = ExerciseSummaryUiState(
                     todayDistanceKm = 5.20,
-                    dailyGoalKm = 8.00,
+                    dailyGoalKm = 5.00,
                     dailyProgress = 0.65f,
                     weeklyDistanceKm = 21.30,
-                    weeklyGoalKm = 40.00,
-                    weeklyProgress = 0.5325f,
-                    weeklyRemainingKm = 18.70,
-                    weeklyGoalCompleted = false,
+                    weeklyGoalKm = 20.00,
+                    weeklyProgress = 1f,
+                    weeklyRemainingKm = 0.00,
+                    weeklyGoalCompleted = true,
                     monthlyDistanceKm = 65.80,
-                    monthlyGoalKm = 100.00,
-                    monthlyProgress = 0.658f,
-                    monthlyProgressPercent = 66,
+                    monthlyGoalKm = 80.00,
+                    monthlyProgress = 0.8225f,
+                    monthlyProgressPercent = 82,
                     monthlyGoalCompleted = false,
                     totalDistanceKm = 532.80,
                     checkInDays = 48,
@@ -795,10 +798,10 @@ private fun HomeScreenEmptyPreview() {
             weightUiState = WeightUiState(),
             exerciseUiState = ExerciseUiState(
                 summary = ExerciseSummaryUiState(
-                    dailyGoalKm = 8.00,
-                    weeklyGoalKm = 40.00,
-                    monthlyGoalKm = 100.00,
-                    weeklyRemainingKm = 40.00
+                    dailyGoalKm = 5.00,
+                    weeklyGoalKm = 20.00,
+                    monthlyGoalKm = 80.00,
+                    weeklyRemainingKm = 20.00
                 )
             ),
             onExerciseClick = {},

@@ -7,8 +7,8 @@ import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-const val DEFAULT_WEEKLY_DISTANCE_GOAL_KM = 40.0
-const val DEFAULT_MONTHLY_DISTANCE_GOAL_KM = 100.0
+const val DEFAULT_WEEKLY_DISTANCE_GOAL_KM = 20.0
+const val DEFAULT_MONTHLY_DISTANCE_GOAL_KM = 80.0
 
 data class ExerciseGoalSettings(
     val weeklyDistanceGoalKm: Double = DEFAULT_WEEKLY_DISTANCE_GOAL_KM,

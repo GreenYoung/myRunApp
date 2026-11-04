@@ -22,15 +22,15 @@ enum class ExerciseStatsPeriod {
 
 data class ExerciseSummaryUiState(
     val todayDistanceKm: Double = 0.0,
-    val dailyGoalKm: Double = 8.0,
+    val dailyGoalKm: Double = 5.0,
     val dailyProgress: Float = 0f,
     val weeklyDistanceKm: Double = 0.0,
-    val weeklyGoalKm: Double = 40.0,
+    val weeklyGoalKm: Double = 20.0,
     val weeklyProgress: Float = 0f,
-    val weeklyRemainingKm: Double = 40.0,
+    val weeklyRemainingKm: Double = 20.0,
     val weeklyGoalCompleted: Boolean = false,
     val monthlyDistanceKm: Double = 0.0,
-    val monthlyGoalKm: Double = 100.0,
+    val monthlyGoalKm: Double = 80.0,
     val monthlyProgress: Float = 0f,
     val monthlyProgressPercent: Int = 0,
     val monthlyGoalCompleted: Boolean = false,
@@ -153,8 +153,8 @@ data class ExerciseConsistencyUiState(
 )
 
 data class ExerciseGoalUiState(
-    val weeklyGoalKm: Double = 40.0,
-    val monthlyGoalKm: Double = 100.0
+    val weeklyGoalKm: Double = 20.0,
+    val monthlyGoalKm: Double = 80.0
 )
 
 data class ExerciseUiState(

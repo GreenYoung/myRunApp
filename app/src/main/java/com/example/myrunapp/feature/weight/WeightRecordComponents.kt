@@ -13,9 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -32,8 +30,9 @@ import androidx.compose.ui.unit.sp
 import com.example.myrunapp.ui.components.AppDangerButton
 import com.example.myrunapp.ui.components.AppPrimaryButton
 import com.example.myrunapp.ui.components.AppSecondaryButton
+import com.example.myrunapp.ui.dialogs.DeleteWeightRecordDialog
+import com.example.myrunapp.ui.dialogs.WeightRecordActionDialog
 import com.example.myrunapp.ui.theme.AppSecondaryText
-import com.example.myrunapp.ui.theme.AppSurface
 
 private val RecordRowMinHeight = 38.dp
 
@@ -199,56 +198,3 @@ private fun WeightRecordExpandedContent(
     }
 }
 
-@Composable
-private fun WeightRecordActionDialog(
-    record: WeightRecordItem,
-    onDismiss: () -> Unit,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = AppSurface,
-        title = { Text("记录操作", color = Color.White, fontWeight = FontWeight.Bold) },
-        text = {
-            Text(
-                text = "${record.date} · ${formatWeight(record.weightKg)} kg",
-                color = AppSecondaryText,
-                style = MaterialTheme.typography.bodyMedium
-            )
-        },
-        confirmButton = {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                AppSecondaryButton(text = "取消", onClick = onDismiss, modifier = Modifier.weight(1f), height = 52.dp)
-                AppPrimaryButton(text = "编辑", onClick = onEdit, modifier = Modifier.weight(1f), height = 52.dp)
-                AppDangerButton(text = "删除", onClick = onDelete, modifier = Modifier.weight(1f))
-            }
-        }
-    )
-}
-
-@Composable
-private fun DeleteWeightRecordDialog(
-    record: WeightRecordItem,
-    onDismiss: () -> Unit,
-    onDelete: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = AppSurface,
-        title = { Text("删除体重记录", color = Color.White, fontWeight = FontWeight.Bold) },
-        text = {
-            Text(
-                text = "${record.date} · ${formatWeight(record.weightKg)} kg",
-                color = AppSecondaryText,
-                style = MaterialTheme.typography.bodyMedium
-            )
-        },
-        confirmButton = {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                AppSecondaryButton(text = "取消", onClick = onDismiss, modifier = Modifier.weight(1f), height = 52.dp)
-                AppDangerButton(text = "删除", onClick = onDelete, modifier = Modifier.weight(1f))
-            }
-        }
-    )
-}

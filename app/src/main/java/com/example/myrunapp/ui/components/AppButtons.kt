@@ -35,12 +35,13 @@ fun AppPrimaryButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    height: Dp = AppButtonHeight
+    height: Dp = AppButtonHeight,
+    cornerRadius: Dp = AppButtonCornerRadius
 ) {
     Button(
         onClick = onClick,
         modifier = modifier.height(height),
-        shape = RoundedCornerShape(AppButtonCornerRadius),
+        shape = RoundedCornerShape(cornerRadius),
         colors = ButtonDefaults.buttonColors(containerColor = Accent)
     ) {
         Text(
@@ -56,12 +57,13 @@ fun AppSecondaryButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    height: Dp = AppButtonHeight
+    height: Dp = AppButtonHeight,
+    cornerRadius: Dp = AppButtonCornerRadius
 ) {
     OutlinedButton(
         onClick = onClick,
         modifier = modifier.height(height),
-        shape = RoundedCornerShape(AppButtonCornerRadius),
+        shape = RoundedCornerShape(cornerRadius),
         colors = ButtonDefaults.outlinedButtonColors(
             containerColor = AppSurface,
             contentColor = Color.White
@@ -77,12 +79,13 @@ fun AppDangerButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    height: Dp = AppButtonHeight
+    height: Dp = AppButtonHeight,
+    cornerRadius: Dp = AppButtonCornerRadius
 ) {
     Button(
         onClick = onClick,
         modifier = modifier.height(height),
-        shape = RoundedCornerShape(AppButtonCornerRadius),
+        shape = RoundedCornerShape(cornerRadius),
         colors = ButtonDefaults.buttonColors(containerColor = AppError)
     ) {
         Text(text = text, color = Color.White, fontWeight = FontWeight.Bold)

@@ -13,10 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -35,6 +32,8 @@ import com.example.myrunapp.core.log.LogTags
 import com.example.myrunapp.ui.components.AppBackButton
 import com.example.myrunapp.ui.components.PageHorizontalPadding
 import com.example.myrunapp.ui.components.PageTopSpacing
+import com.example.myrunapp.ui.dialogs.BatteryOptimizationDialog
+import com.example.myrunapp.ui.dialogs.DiscardRecoveredRunDialog
 import com.example.myrunapp.ui.theme.MyRunAppTheme
 import kotlinx.coroutines.delay
 
@@ -109,31 +108,6 @@ fun RunTrackingRoute(
             }
         )
     }
-}
-
-@Composable
-private fun BatteryOptimizationDialog(
-    onConfirm: () -> Unit,
-    onDecline: () -> Unit,
-    onCancel: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onCancel,
-        title = { Text(text = "开启后台持续定位") },
-        text = {
-            Text(text = "锁屏后系统可能冻结定位和计时，导致轨迹中断。建议将 MyRun 加入电池优化白名单，保证跑步全程持续记录。")
-        },
-        confirmButton = {
-            TextButton(onClick = onConfirm) {
-                Text(text = "去设置")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDecline) {
-                Text(text = "暂不")
-            }
-        }
-    )
 }
 
 @Composable
@@ -272,25 +246,13 @@ fun RunTrackingScreen(
         }
 
         if (isDiscardRecoveredDialogVisible) {
-            AlertDialog(
-                onDismissRequest = { isDiscardRecoveredDialogVisible = false },
-                title = { Text(text = "放弃未完成的跑步记录？") },
-                text = { Text(text = "未完成的跑步记录将被删除，且无法恢复。") },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            isDiscardRecoveredDialogVisible = false
-                            onDiscardRecoveredDraft()
-                        }
-                    ) {
-                        Text(text = "放弃", color = MaterialTheme.colorScheme.error)
-                    }
+            DiscardRecoveredRunDialog(
+                onConfirm = {
+                    isDiscardRecoveredDialogVisible = false
+                    onDiscardRecoveredDraft()
                 },
-                dismissButton = {
-                    TextButton(onClick = { isDiscardRecoveredDialogVisible = false }) {
-                        Text(text = "保留记录")
-                    }
-                }
+                onDecline = { isDiscardRecoveredDialogVisible = false },
+                onDismiss = { isDiscardRecoveredDialogVisible = false }
             )
         }
     }

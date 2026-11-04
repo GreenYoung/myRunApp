@@ -11,8 +11,8 @@ import kotlin.math.roundToInt
 
 fun buildExerciseSummary(
     records: List<ExerciseRecordEntity>,
-    weeklyGoal: Double = 40.0,
-    monthlyGoal: Double = 100.0
+    weeklyGoal: Double = 20.0,
+    monthlyGoal: Double = 80.0
 ): ExerciseSummaryUiState {
     val now = Calendar.getInstance()
     val nowMillis = now.timeInMillis
@@ -28,7 +28,7 @@ fun buildExerciseSummary(
     val todayRecords = statsRecords.filter { it.startTime in todayStart until tomorrowStart }
     val weeklyRecords = statsRecords.filter { it.startTime >= weekStart }
     val monthlyRecords = statsRecords.filter { it.startTime >= monthStart }
-    val dailyGoal = 8.0
+    val dailyGoal = 5.0
     val todayDistance = todayRecords.sumOf { it.distanceKm }
     val weeklyDistance = weeklyRecords.sumOf { it.distanceKm }
     val monthlyDistance = monthlyRecords.sumOf { it.distanceKm }

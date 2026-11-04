@@ -2,6 +2,7 @@ package com.example.myrunapp.feature.weight
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,13 +16,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -36,6 +37,13 @@ import java.util.Locale
 private val CardDark = Color(0xFF111820)
 private val CardLight = Color(0xFF151E26)
 
+/**
+ * 旧版权重卡片（最新体重 / 概览 / 运动关联 / 趋势入口）。
+ *
+ * 新版体重页已经在 WeightScreen.kt 里合并成「主卡片 + 趋势卡」，
+ * 这几个 composable 暂时不再被调用，但**刻意保留**：后续调样式时可以直接
+ * 拿来对比，或者临时切回旧布局排查问题。确认不再需要后再删。
+ */
 @Composable
 internal fun LatestWeightCard(detail: WeightDetailUiState) {
     DetailCard {
@@ -296,17 +304,13 @@ internal fun DetailCard(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        colors = CardDefaults.cardColors(containerColor = CardDark)
-    ) {
-        Column(
-            modifier = Modifier
-                .background(CardLight.copy(alpha = 0.18f))
-                .padding(18.dp),
-            content = content
-        )
-    }
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .background(Brush.linearGradient(listOf(CardLight, CardDark)))
+            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(22.dp))
+            .padding(18.dp),
+        content = content
+    )
 }
