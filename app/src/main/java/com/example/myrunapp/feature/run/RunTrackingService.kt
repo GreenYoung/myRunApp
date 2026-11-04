@@ -52,10 +52,12 @@ private const val TrackGapLogMinTimeMs = 8_000L
 private const val TrackGapLogMinDistanceMeters = 40f
 private const val DraftPersistIntervalMs = 5_000L
 private const val LocationSilenceWarnMs = 8_000L
-private const val LocationSilenceRestartMs = 15_000L
+private const val LocationSilenceRestartMs = 30_000L
 private const val InitialLocationGraceMs = 30_000L
 private const val LocationRestartCooldownMs = 20_000L
 private const val LocationErrorRestartDelayMs = 2_000L
+// 网络定位只用于地图蓝点展示，且精度必须好于该值；再差的点会让蓝点直接跳到几百米外
+private const val NonGpsMapDisplayMaxAccuracyMeters = 15f
 
 // AMap 错误码 4：网络连接异常/定位超时（info 常见 Location timeout#0402#pm100011）
 private const val AmapErrorCodeConnectionFailure = 4
@@ -74,9 +76,9 @@ class RunTrackingService : Service() {
     private var totalDistanceMeters = 0.0
     private var trackingWeightKg = 70.0
     private var lastDraftPersistAt = 0L
-    private var lastLocationAtMs = 0L
+    private var lastGpsFixAtMs = 0L
     private var lastLocationRestartAtMs = 0L
-    private var locationFixSinceRestart = false
+    private var gpsFixSinceRestart = false
     private var locationLostNotified = false
     private var wakeLock: PowerManager.WakeLock? = null
 
@@ -748,43 +750,46 @@ class RunTrackingService : Service() {
     }
 
     private fun resetLocationHealthWatch() {
-        lastLocationAtMs = System.currentTimeMillis()
+        lastGpsFixAtMs = System.currentTimeMillis()
         lastLocationRestartAtMs = 0L
-        locationFixSinceRestart = false
+        gpsFixSinceRestart = false
         locationLostNotified = false
     }
 
     /**
      * AMap 偶尔会长时间（实测约 160s）不再回调任何定位，直到 SDK 自己报 error=4 超时才恢复。
      * 这里用 1 秒定时器做看门狗：先提示用户，再主动重建定位客户端，避免把短暂丢星拖成几分钟的轨迹空洞。
+     *
+     * 注意：只以 GPS 结果计时。WiFi/基站定位每几秒就来一条，如果拿它续命，GPS 掉星时看门狗永远不会重启客户端
+     * （2026-10-30 17:06 那次就是这样，WiFi 点持续到 44s，客户端一次都没重启）。
      */
     private fun monitorLocationHealth() {
         val current = RunTrackingStateStore.state.value
         if (!current.isTracking || current.isPaused) {
-            lastLocationAtMs = System.currentTimeMillis()
+            lastGpsFixAtMs = System.currentTimeMillis()
             return
         }
         val now = System.currentTimeMillis()
-        val silenceMs = now - lastLocationAtMs
-        val restartThresholdMs = if (locationFixSinceRestart) LocationSilenceRestartMs else InitialLocationGraceMs
+        val silenceMs = now - lastGpsFixAtMs
+        val restartThresholdMs = if (gpsFixSinceRestart) LocationSilenceRestartMs else InitialLocationGraceMs
         when {
             silenceMs >= restartThresholdMs -> {
                 if (!locationLostNotified) {
                     locationLostNotified = true
                     AppLogger.w(
                         LogTags.GPS,
-                        "location source silent for ${silenceMs}ms (fixSinceRestart=$locationFixSinceRestart), restarting AMap client"
+                        "no GPS fix for ${silenceMs}ms (fixSinceRestart=$gpsFixSinceRestart), restarting AMap client"
                     )
                 }
                 RunTrackingStateStore.update {
-                    it.copy(gpsStatusText = if (locationFixSinceRestart) "GPS 信号丢失，正在重新定位" else "GPS 信号弱，正在重新定位")
+                    it.copy(gpsStatusText = if (gpsFixSinceRestart) "GPS 信号丢失，正在重新定位" else "GPS 信号弱，正在重新定位")
                 }
-                restartAmapLocation(reason = "silence_${silenceMs}ms")
+                restartAmapLocation(reason = "no_gps_${silenceMs}ms")
             }
-            silenceMs >= LocationSilenceWarnMs && locationFixSinceRestart -> {
+            silenceMs >= LocationSilenceWarnMs && gpsFixSinceRestart -> {
                 if (!locationLostNotified) {
                     locationLostNotified = true
-                    AppLogger.w(LogTags.GPS, "location source silent for ${silenceMs}ms, waiting for recovery")
+                    AppLogger.w(LogTags.GPS, "no GPS fix for ${silenceMs}ms, waiting for recovery")
                 }
                 RunTrackingStateStore.update { it.copy(gpsStatusText = "GPS 信号弱，等待定位") }
             }
@@ -801,8 +806,8 @@ class RunTrackingService : Service() {
             return
         }
         lastLocationRestartAtMs = now
-        lastLocationAtMs = now
-        locationFixSinceRestart = false
+        lastGpsFixAtMs = now
+        gpsFixSinceRestart = false
         gpsTrackFilter.beginRecovery()
         AppLogger.w(LogTags.GPS, "restarting AMap location client reason=$reason")
         runCatching { startAmapLocationUpdates() }
@@ -811,14 +816,14 @@ class RunTrackingService : Service() {
             }
     }
 
-    private fun markLocationReceived() {
+    private fun markGpsFixReceived() {
         val now = System.currentTimeMillis()
         if (locationLostNotified) {
             locationLostNotified = false
-            AppLogger.i(LogTags.GPS, "location source recovered silence=${now - lastLocationAtMs}ms")
+            AppLogger.i(LogTags.GPS, "GPS fix recovered silence=${now - lastGpsFixAtMs}ms")
         }
-        lastLocationAtMs = now
-        locationFixSinceRestart = true
+        lastGpsFixAtMs = now
+        gpsFixSinceRestart = true
     }
 
     private fun activeDurationSeconds(now: Long = System.currentTimeMillis()): Long {
@@ -914,7 +919,10 @@ class RunTrackingService : Service() {
             }
             return
         }
-        markLocationReceived()
+        val isGpsLocation = location.locationType == AMapLocation.LOCATION_TYPE_GPS
+        if (isGpsLocation) {
+            markGpsFixReceived()
+        }
         publishMapLocation(location)
         handleLocation(location)
     }
@@ -922,10 +930,18 @@ class RunTrackingService : Service() {
     /**
      * 把定位结果发布到共享状态，地图页据此更新原生定位蓝点，避免地图端再开一个定位客户端。
      * 坐标已是 GCJ-02（客户端设置了 setOffset(true)），可直接用于高德地图。
+     * 网络定位只有精度足够好时才更新蓝点，否则宁可让蓝点停在最后一次 GPS 位置，也不要在图上跳 100 多米。
      */
     private fun publishMapLocation(location: AMapLocation) {
         if (location.accuracy <= 0f || location.accuracy > RunMapMaxDisplayAccuracyMeters) return
         val isGpsLocation = location.locationType == AMapLocation.LOCATION_TYPE_GPS
+        if (!isGpsLocation && location.accuracy > NonGpsMapDisplayMaxAccuracyMeters) {
+            AppLogger.d(
+                LogTags.GPS,
+                "skip non-gps map location type=${location.locationType} accuracy=${location.accuracy}"
+            )
+            return
+        }
         RunTrackingStateStore.update {
             it.copy(
                 mapLocation = RunMapLocationSnapshot(
@@ -1052,6 +1068,7 @@ class RunTrackingService : Service() {
             LocationRejectReason.LARGE_JUMP,
             LocationRejectReason.SUSPECT_SPIKE -> "已过滤异常跳点"
             LocationRejectReason.MOCK_LOCATION -> "已忽略模拟定位"
+            LocationRejectReason.NON_GPS_LOCATION -> "已忽略网络定位，等待 GPS"
             LocationRejectReason.INVALID_TIME -> "已忽略异常定位时间"
         }
     }

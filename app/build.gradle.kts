@@ -81,6 +81,11 @@ android {
         compose = true
         buildConfig = true
     }
+    testOptions {
+        // 轨迹过滤器的单测会走到 AppLogger，android.util.Log 在 JVM 单测里默认抛异常，
+        // 这里让未 mock 的 android 方法返回默认值。
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 android.applicationVariants.all {

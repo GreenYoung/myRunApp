@@ -41,6 +41,11 @@ private const val RenderGapMaxDistanceMeters = 70f
 private const val LivePolylineTailPoints = 200
 private const val MarkerBitmapCacheBytes = 4 * 1024 * 1024
 
+// 定位中断处的虚线连接：石板灰 + 虚线，明确表示"这段是推定位置"
+private val TrackGapColor = Color(0xFF64748B)
+private const val TrackGapAlpha = 0.85f
+private const val TrackGapLineWidthPx = 7f
+
 private val markerBitmapCache = object : LruCache<String, Bitmap>(MarkerBitmapCacheBytes) {
     override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
 }
@@ -78,7 +83,6 @@ internal fun AMap.drawSportTrack(
     points: List<RunTrackPointUiModel>,
     endLabel: String = "END",
     showCurrentAsEnd: Boolean = false,
-    splitRenderGaps: Boolean = false,
     currentLocation: RunMapLocation? = null
 ) {
     clear()
@@ -87,8 +91,9 @@ internal fun AMap.drawSportTrack(
         return
     }
 
-    val sourceSegments = if (splitRenderGaps) points.splitByRenderGap() else listOf(points)
-    val renderSegments = sourceSegments.map { it.simplifyForMapRender() }
+    // 定位中断（掉星/弱信号）处不画实线，改画虚线连接：轨迹看起来是连续的，
+    // 但样式上明确表达"这一段的坐标是推测的"，实时轨迹和历史轨迹保持一致。
+    val renderSegments = points.splitByRenderGap().map { it.simplifyForMapRender() }
     val displayPoints = renderSegments.flatten()
     val latLngs = displayPoints.map { it.toAmapLatLng() }
     addMarker(
@@ -102,6 +107,7 @@ internal fun AMap.drawSportTrack(
 
     if (latLngs.size >= 2) {
         drawSpeedGradientPolylines(renderSegments)
+        drawGapConnectors(renderSegments)
         addKilometerMarkers(context, points)
     }
 
@@ -270,6 +276,29 @@ private fun AMap.drawSpeedGradientPolylines(segments: List<List<RunTrackPointUiM
         if (segment.size >= 2) {
             drawSpeedGradientPolyline(segment)
         }
+    }
+}
+
+/** 断档处画一条虚线，把前后两段轨迹"接"起来，但不冒充真实轨迹。 */
+private fun buildGapConnectorOptions(
+    from: RunTrackPointUiModel,
+    to: RunTrackPointUiModel
+): PolylineOptions {
+    return PolylineOptions()
+        .add(from.toAmapLatLng())
+        .add(to.toAmapLatLng())
+        .width(TrackGapLineWidthPx)
+        .color(TrackGapColor.copy(alpha = TrackGapAlpha).toArgb())
+        .setDottedLine(true)
+        .setDottedLineType(PolylineOptions.DOTTEDLINE_TYPE_SQUARE)
+        .zIndex(9f)
+}
+
+private fun AMap.drawGapConnectors(segments: List<List<RunTrackPointUiModel>>) {
+    segments.zipWithNext().forEach { (fromSegment, toSegment) ->
+        val from = fromSegment.lastOrNull() ?: return@forEach
+        val to = toSegment.firstOrNull() ?: return@forEach
+        addPolyline(buildGapConnectorOptions(from, to))
     }
 }
 
@@ -583,6 +612,7 @@ internal class AMapLiveTrackRenderer {
             }
             if (isRenderGap(from, point)) {
                 commitTail()
+                map.addPolyline(buildGapConnectorOptions(from, point))
                 tailPoints = mutableListOf(point)
             } else {
                 tailPoints.add(point)
