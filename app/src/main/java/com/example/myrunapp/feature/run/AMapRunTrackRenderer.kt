@@ -1,12 +1,6 @@
 package com.example.myrunapp.feature.run
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Paint
-import android.graphics.Rect
-import android.graphics.Typeface
-import android.util.LruCache
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import com.amap.api.maps.AMap
@@ -29,26 +23,18 @@ private val TrackGradientEnd = Color(0xFFF97316)
 private val TrackSlow = Color(0xFF22C55E)
 private val TrackSteady = Color(0xFF06B6D4)
 private val TrackFast = Color(0xFFF97316)
-private val MarkerGreen = Color(0xFF22C55E)
-private val MarkerRed = Color(0xFFEF4444)
-private val MarkerWhite = Color(0xFFFFFFFF)
 private const val RoadBearing = 0f
-private const val TrackBoundsPadding = 58
+internal const val TrackBoundsPadding = 58
 private const val MaxRenderTrackPoints = 700
 private const val RenderGapMinTimeMs = 12_000L
 private const val RenderGapMinDistanceMeters = 45f
 private const val RenderGapMaxDistanceMeters = 70f
 private const val LivePolylineTailPoints = 200
-private const val MarkerBitmapCacheBytes = 4 * 1024 * 1024
 
-// 定位中断处的虚线连接：石板灰 + 虚线，明确表示"这段是推定位置"
+// 鐎规矮缍呮稉顓熸焽婢跺嫮娈戦搹姘卞殠鏉╃偞甯撮敍姘辩叾閺夎法浼?+ 閾忔氨鍤庨敍灞炬绾喛銆冪粈?鏉╂瑦顔岄弰顖涘腹鐎规矮缍呯純?
 private val TrackGapColor = Color(0xFF64748B)
 private const val TrackGapAlpha = 0.85f
 private const val TrackGapLineWidthPx = 7f
-
-private val markerBitmapCache = object : LruCache<String, Bitmap>(MarkerBitmapCacheBytes) {
-    override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
-}
 
 internal data class RunMapCameraStyle(
     val zoom: Float,
@@ -78,56 +64,53 @@ internal fun AMap.configureSportTrackUi(mapDisplayType: RunMapDisplayType = RunM
     uiSettings.setScaleControlsEnabled(true)
 }
 
-internal fun AMap.drawSportTrack(
-    context: Context,
-    points: List<RunTrackPointUiModel>,
-    endLabel: String = "END",
-    showCurrentAsEnd: Boolean = false,
-    currentLocation: RunMapLocation? = null
-) {
-    clear()
-    if (points.isEmpty()) {
-        currentLocation?.let { drawCurrentLocationMarker(context, it) }
-        return
+/**
+ * 閸樺棗褰舵潪銊ㄦ姉濞撳弶鐓嬮崳顭掔窗娑撯偓濞嗏剝鈧呮暰鐎瑰矁寤烘潻閫涚瑢閺嶅洩顔囬敍灞借嫙閸︺劎缂夐弨鎯у綁閸栨牕鎮楅柌宥嗗笓閺嶅洩顔囬妴?
+ *
+ * 閺嶅洩顔囬敍鍫ｆ崳缂佸牏鍋ｉ弮妤佺垼閵嗕線鍣风粙瀣仯閿涘绮烘稉鈧禍銈囩舶 [AMapTrackLabelRenderer]閿?
+ * 閻㈠崬鐣犻崑姘潌楠炴洜鈹栭梻鎾缉鐠佲晪绱濋柆鍨帳缂佹洖婀€/閹舵绻戞潪銊ㄦ姉娑撳﹤顦挎稉顏呯垼鐠佹澘褰旈崷銊ょ鐠ф灚鈧?
+ */
+internal class AMapStaticTrackRenderer {
+    private val labels = AMapTrackLabelRenderer()
+
+    fun render(
+        map: AMap,
+        context: Context,
+        points: List<RunTrackPointUiModel>
+    ) {
+        map.clear()
+        labels.reset()
+        if (points.isEmpty()) return
+
+        // 鐎规矮缍呮稉顓熸焽閿涘牊甯€閺?瀵彉淇婇崣鍑ょ礆婢跺嫪绗夐悽璇茬杽缁惧尅绱濋弨鍦暰閾忔氨鍤庢潻鐐村复閿涙俺寤烘潻鍦箙鐠ч攱娼甸弰顖濈箾缂侇厾娈戦敍?
+        // 娴ｅ棙鐗卞蹇庣瑐閺勫海鈥樼悰銊ㄦ彧"鏉╂瑤绔村▓鐢垫畱閸ф劖鐖ｉ弰顖涘腹濞村娈?閿涘苯鐤勯弮鎯板缓鏉╃懓鎷伴崢鍡楀蕉鏉炪劏鎶楁穱婵囧瘮娑撯偓閼锋番鈧?
+        val renderSegments = points.splitByRenderGap().map { it.simplifyForMapRender() }
+        val displayPoints = renderSegments.flatten()
+        val latLngs = displayPoints.map { it.toAmapLatLng() }
+        val specs = mutableListOf(TrackLabelSpec(latLngs.first(), TrackLabelKind.START))
+        if (latLngs.size >= 2) {
+            map.drawSpeedGradientPolylines(renderSegments)
+            map.drawGapConnectors(renderSegments)
+            specs += kilometerLabelSpecs(points)
+            // 缂佸牏鍋ｉ弮妤佺垼閸氭垳绗呯仦鏇炵磻閿涘苯鎷伴崥鎴滅瑐閻?GO 閺冩鐖ｆ禍鎺嶇瑝闁喗灏呴敍鍫濇儓鐠ч鍋ｉ崡宕囩矒閻愬湱娈戦悳顖滃殠閿?
+            specs += TrackLabelSpec(latLngs.last(), TrackLabelKind.END)
+        }
+        labels.replaceAll(specs)
+        labels.draw(map, context)
     }
 
-    // 定位中断（掉星/弱信号）处不画实线，改画虚线连接：轨迹看起来是连续的，
-    // 但样式上明确表达"这一段的坐标是推测的"，实时轨迹和历史轨迹保持一致。
-    val renderSegments = points.splitByRenderGap().map { it.simplifyForMapRender() }
-    val displayPoints = renderSegments.flatten()
-    val latLngs = displayPoints.map { it.toAmapLatLng() }
-    addMarker(
-        MarkerOptions()
-            .position(latLngs.first())
-            .title("GO")
-            .anchor(0.5f, 0.5f)
-            .zIndex(20f)
-            .icon(BitmapDescriptorFactory.fromBitmap(routeLabelMarkerBitmap(context, "GO", MarkerGreen)))
-    )
+    fun relayoutIfZoomChanged(map: AMap, context: Context): Boolean =
+        labels.relayoutIfZoomChanged(map, context)
 
-    if (latLngs.size >= 2) {
-        drawSpeedGradientPolylines(renderSegments)
-        drawGapConnectors(renderSegments)
-        addKilometerMarkers(context, points)
+    fun reset() {
+        labels.reset()
     }
-
-    if (latLngs.size >= 2 || showCurrentAsEnd) {
-        addMarker(
-            MarkerOptions()
-                .position(latLngs.last())
-                .title(endLabel)
-                .anchor(0.5f, 0.5f)
-                .zIndex(21f)
-                .icon(BitmapDescriptorFactory.fromBitmap(routeLabelMarkerBitmap(context, endLabel, MarkerRed)))
-        )
-    }
-
-    currentLocation?.let { drawCurrentLocationMarker(context, it) }
 }
 
 internal fun AMap.moveToSportTrack(
     points: List<RunTrackPointUiModel>,
-    mapDisplayType: RunMapDisplayType = RunMapDisplayType.Normal
+    mapDisplayType: RunMapDisplayType = RunMapDisplayType.Normal,
+    paddingPx: Int = TrackBoundsPadding
 ) {
     if (points.isEmpty()) return
 
@@ -141,7 +124,8 @@ internal fun AMap.moveToSportTrack(
         latLngs.forEach(::include)
     }.build()
     runCatching {
-        moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, TrackBoundsPadding))
+        // padding 閸楁洑缍呴弰顖氬剼缁辩媴绱扮挧椋庣矒閻愯妫楅弽鍥︾窗娑撳﹣绗呯仦鏇炵磻閿涘瞼鏆€閻ф垝绗夋径鐔剁窗閹跺﹨鍒涙潏鍦畱閺冩鐖ｇ憗浣瑰竴
+        moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, paddingPx))
         if (mapDisplayType == RunMapDisplayType.Satellite) {
             moveToRoadLevel(latLngs.trackCenter(), mapDisplayType)
         }
@@ -210,9 +194,9 @@ internal fun AMap.drawCurrentLocationMarker(context: Context, location: RunMapLo
     addMarker(
         MarkerOptions()
             .position(location.latLng)
-            .title("当前位置")
+            .title("瑜版挸澧犳担宥囩枂")
             .anchor(0.5f, 0.5f)
-            .zIndex(30f)
+            .zIndex(ZIndexCurrentLocation)
             .icon(BitmapDescriptorFactory.fromBitmap(createCurrentLocationBitmap(context)))
     )
 }
@@ -279,7 +263,7 @@ private fun AMap.drawSpeedGradientPolylines(segments: List<List<RunTrackPointUiM
     }
 }
 
-/** 断档处画一条虚线，把前后两段轨迹"接"起来，但不冒充真实轨迹。 */
+/** 閺傤厽銆傛径鍕暰娑撯偓閺壜ゆ珓缁惧尅绱濋幎濠傚閸氬簼琚卞▓浣冨缓鏉?閹?鐠ч攱娼甸敍灞肩稻娑撳秴鍟嬮崗鍛埂鐎圭偠寤烘潻骞库偓?*/
 private fun buildGapConnectorOptions(
     from: RunTrackPointUiModel,
     to: RunTrackPointUiModel
@@ -358,10 +342,9 @@ private fun isRenderGap(
         distanceMeters >= RenderGapMaxDistanceMeters
 }
 
-private fun AMap.addKilometerMarkers(
-    context: Context,
-    points: List<RunTrackPointUiModel>
-) {
+/** 閹稿鐤拋陇绐涚粋鑽ょ暬閸戠儤澧嶉張澶嬫殻閸忣剟鍣烽弽鍥唶閻愮櫢绱欓崣顏嗙暬閸ф劖鐖ｉ敍灞炬Ц閸氾附妯夌粈鐑樻瀮鐎涙ぞ姘︾紒娆愮垼缁涙儳绔风仦鈧崘鍐茬暰閿涘鈧?*/
+internal fun kilometerLabelSpecs(points: List<RunTrackPointUiModel>): List<TrackLabelSpec> {
+    val specs = mutableListOf<TrackLabelSpec>()
     var cumulativeMeters = 0f
     var nextKilometer = 1
     points.zipWithNext().forEach { (from, to) ->
@@ -371,18 +354,16 @@ private fun AMap.addKilometerMarkers(
         while (cumulativeMeters + segmentMeters >= nextKilometer * 1000f) {
             val ratio = ((nextKilometer * 1000f) - cumulativeMeters) / segmentMeters
             val markerPoint = interpolatePoint(from, to, ratio.coerceIn(0f, 1f))
-            addMarker(
-                MarkerOptions()
-                    .position(markerPoint.toAmapLatLng())
-                    .title("${nextKilometer}km")
-                    .anchor(0.5f, 0.5f)
-                    .zIndex(22f)
-                    .icon(BitmapDescriptorFactory.fromBitmap(kilometerMarkerBitmap(context, nextKilometer.toString())))
+            specs += TrackLabelSpec(
+                latLng = markerPoint.toAmapLatLng(),
+                kind = TrackLabelKind.KILOMETER,
+                kilometer = nextKilometer
             )
             nextKilometer += 1
         }
         cumulativeMeters += segmentMeters
     }
+    return specs
 }
 
 private fun interpolatePoint(
@@ -397,120 +378,6 @@ private fun interpolatePoint(
     )
 }
 
-private fun routeLabelMarkerBitmap(context: Context, text: String, background: Color): Bitmap {
-    return cachedMarkerBitmap("route:$text:${background.toArgb()}:${densityKey(context)}") {
-        createRouteLabelMarkerBitmap(context, text, background)
-    }
-}
-
-private fun kilometerMarkerBitmap(context: Context, text: String): Bitmap {
-    return cachedMarkerBitmap("km:$text:${densityKey(context)}") {
-        createCircleMarkerBitmap(context, text)
-    }
-}
-
-private fun cachedMarkerBitmap(key: String, create: () -> Bitmap): Bitmap {
-    markerBitmapCache.get(key)?.let { return it }
-    return create().also { markerBitmapCache.put(key, it) }
-}
-
-private fun densityKey(context: Context): Int {
-    return (context.resources.displayMetrics.density * 100).roundToInt()
-}
-
-private fun createRouteLabelMarkerBitmap(
-    context: Context,
-    text: String,
-    background: Color
-): Bitmap {
-    val density = context.resources.displayMetrics.density
-    val size = (28 * density).roundToInt()
-    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-    val canvas = Canvas(bitmap)
-    val center = size / 2f
-
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = background.toArgb()
-        style = Paint.Style.FILL
-    }
-    canvas.drawCircle(center, center, center - 0.5f * density, paint)
-
-    drawCenteredText(canvas, text, MarkerWhite, 8.5f * density, Typeface.BOLD)
-    return bitmap
-}
-
-private fun createCircleMarkerBitmap(context: Context, text: String): Bitmap {
-    val density = context.resources.displayMetrics.density
-    val size = (18 * density).roundToInt()
-    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-    val canvas = Canvas(bitmap)
-    val center = size / 2f
-
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = MarkerGreen.toArgb()
-        style = Paint.Style.FILL
-    }
-    canvas.drawCircle(center, center, center - 0.5f * density, paint)
-
-    drawCenteredText(canvas, text, MarkerWhite, 7.5f * density, Typeface.BOLD)
-    return bitmap
-}
-
-internal fun createCurrentLocationBitmap(context: Context): Bitmap {
-    return cachedMarkerBitmap("current:${densityKey(context)}") {
-        buildCurrentLocationBitmap(context)
-    }
-}
-
-private fun buildCurrentLocationBitmap(context: Context): Bitmap {
-    val density = context.resources.displayMetrics.density
-    val size = (30 * density).roundToInt()
-    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-    val canvas = Canvas(bitmap)
-    val center = size / 2f
-
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = MarkerGreen.copy(alpha = 0.14f).toArgb()
-        style = Paint.Style.FILL
-    }
-    canvas.drawCircle(center, center, center - density, paint)
-
-    paint.apply {
-        color = MarkerGreen.toArgb()
-        style = Paint.Style.FILL
-    }
-    canvas.drawCircle(center, center, 6.5f * density, paint)
-
-    paint.apply {
-        color = MarkerWhite.toArgb()
-        style = Paint.Style.STROKE
-        strokeWidth = 2f * density
-    }
-    canvas.drawCircle(center, center, 6.5f * density, paint)
-
-    return bitmap
-}
-
-private fun drawCenteredText(
-    canvas: Canvas,
-    text: String,
-    textColor: Color,
-    textSizePx: Float,
-    typefaceStyle: Int
-) {
-    val bounds = Rect()
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = textColor.toArgb()
-        textAlign = Paint.Align.CENTER
-        textSize = textSizePx
-        typeface = Typeface.create(Typeface.DEFAULT, typefaceStyle)
-    }
-    paint.getTextBounds(text, 0, text.length, bounds)
-    val x = canvas.width / 2f
-    val y = canvas.height / 2f - bounds.exactCenterY()
-    canvas.drawText(text, x, y, paint)
-}
-
 private fun lerpColor(start: Color, end: Color, fraction: Float): Color {
     val clamped = fraction.coerceIn(0f, 1f)
     return Color(
@@ -522,23 +389,22 @@ private fun lerpColor(start: Color, end: Color, fraction: Float): Color {
 }
 
 /**
- * Incremental renderer for the live tracking map. Completed polyline chunks,
- * kilometer markers and the start marker are kept across updates; only the
- * current tail chunk, the end marker and the current-location marker change.
+ * 实时轨迹渲染器：已完成片段、里程标签与起点标签跨帧保留，
+ * 每帧只更新尾段折线、终点标签（跑完才出现）和当前位置点。
  */
 internal class AMapLiveTrackRenderer {
     private var map: AMap? = null
     private var renderedCount = 0
     private var lastRenderedTime = Long.MIN_VALUE
     private var lastPoint: RunTrackPointUiModel? = null
-    private var endLabel: String? = null
 
     private var tailPoints = mutableListOf<RunTrackPointUiModel>()
     private var tailPolyline: Polyline? = null
 
-    private var endMarker: Marker? = null
     private var currentMarker: Marker? = null
     private var currentCircle: Circle? = null
+
+    private val labels = AMapTrackLabelRenderer()
 
     private var cumulativeMeters = 0f
     private var nextKilometer = 1
@@ -565,16 +431,11 @@ internal class AMapLiveTrackRenderer {
             return
         }
 
+        var labelsDirty = false
         val startIndex: Int
         if (renderedCount == 0) {
-            targetMap.addMarker(
-                MarkerOptions()
-                    .position(points.first().toAmapLatLng())
-                    .title("GO")
-                    .anchor(0.5f, 0.5f)
-                    .zIndex(20f)
-                    .icon(BitmapDescriptorFactory.fromBitmap(routeLabelMarkerBitmap(context, "GO", MarkerGreen)))
-            )
+            labels.add(TrackLabelSpec(points.first().toAmapLatLng(), TrackLabelKind.START))
+            labelsDirty = true
             lastPoint = points.first()
             tailPoints = mutableListOf(points.first())
             startIndex = 1
@@ -582,19 +443,32 @@ internal class AMapLiveTrackRenderer {
             startIndex = renderedCount
         }
 
-        appendPoints(targetMap, context, points, startIndex)
+        if (appendPoints(targetMap, points, startIndex)) {
+            labelsDirty = true
+        }
         renderedCount = points.size
         lastRenderedTime = points.last().recordedAt
-        updateEndMarker(targetMap, context, points.last(), isTracking)
+        // 追踪中不画终点标签：当前位置的绿点就代表"我在这"。
+        // 旧实现的红色 LIVE 标签 zIndex(21) 低于当前位置点(30)，本来就基本看不见。
+        if (!isTracking && labels.upsertEnd(points.last().toAmapLatLng())) {
+            labelsDirty = true
+        }
+        if (labelsDirty) {
+            labels.draw(targetMap, context)
+        }
         updateCurrentLocation(targetMap, context, currentLocation)
     }
 
+    /** 缩放变化后重排里程标签，避免放大后仍停留在聚合结果。 */
+    fun relayoutIfZoomChanged(map: AMap, context: Context): Boolean =
+        labels.relayoutIfZoomChanged(map, context)
+
     private fun appendPoints(
         map: AMap,
-        context: Context,
         points: List<RunTrackPointUiModel>,
         startIndex: Int
-    ) {
+    ): Boolean {
+        var addedKilometers = false
         var index = startIndex
         while (index < points.size) {
             val point = points[index]
@@ -607,8 +481,8 @@ internal class AMapLiveTrackRenderer {
             }
 
             val segmentMeters = distanceMetersBetween(from, point)
-            if (segmentMeters > 0f) {
-                appendKilometerMarkers(map, context, from, point, segmentMeters)
+            if (segmentMeters > 0f && appendKilometers(from, point, segmentMeters)) {
+                addedKilometers = true
             }
             if (isRenderGap(from, point)) {
                 commitTail()
@@ -627,6 +501,7 @@ internal class AMapLiveTrackRenderer {
             index += 1
         }
         drawTail(map)
+        return addedKilometers
     }
 
     private fun drawTail(map: AMap) {
@@ -642,56 +517,27 @@ internal class AMapLiveTrackRenderer {
         tailPoints = mutableListOf()
     }
 
-    private fun appendKilometerMarkers(
-        map: AMap,
-        context: Context,
+    private fun appendKilometers(
         from: RunTrackPointUiModel,
         to: RunTrackPointUiModel,
         segmentMeters: Float
-    ) {
+    ): Boolean {
+        var added = false
         while (cumulativeMeters + segmentMeters >= nextKilometer * 1000f) {
             val ratio = ((nextKilometer * 1000f) - cumulativeMeters) / segmentMeters
             val markerPoint = interpolatePoint(from, to, ratio.coerceIn(0f, 1f))
-            map.addMarker(
-                MarkerOptions()
-                    .position(markerPoint.toAmapLatLng())
-                    .title("${nextKilometer}km")
-                    .anchor(0.5f, 0.5f)
-                    .zIndex(22f)
-                    .icon(BitmapDescriptorFactory.fromBitmap(kilometerMarkerBitmap(context, nextKilometer.toString())))
+            labels.add(
+                TrackLabelSpec(
+                    latLng = markerPoint.toAmapLatLng(),
+                    kind = TrackLabelKind.KILOMETER,
+                    kilometer = nextKilometer
+                )
             )
+            added = true
             nextKilometer += 1
         }
         cumulativeMeters += segmentMeters
-    }
-
-    private fun updateEndMarker(
-        map: AMap,
-        context: Context,
-        point: RunTrackPointUiModel,
-        isTracking: Boolean
-    ) {
-        val label = if (isTracking) "LIVE" else "END"
-        val latLng = point.toAmapLatLng()
-        val marker = endMarker
-        if (marker == null) {
-            endLabel = label
-            endMarker = map.addMarker(
-                MarkerOptions()
-                    .position(latLng)
-                    .title(label)
-                    .anchor(0.5f, 0.5f)
-                    .zIndex(21f)
-                    .icon(BitmapDescriptorFactory.fromBitmap(routeLabelMarkerBitmap(context, label, MarkerRed)))
-            )
-            return
-        }
-        marker.setPosition(latLng)
-        if (endLabel != label) {
-            endLabel = label
-            marker.setTitle(label)
-            marker.setIcon(BitmapDescriptorFactory.fromBitmap(routeLabelMarkerBitmap(context, label, MarkerRed)))
-        }
+        return added
     }
 
     private fun updateCurrentLocation(
@@ -721,7 +567,7 @@ internal class AMapLiveTrackRenderer {
                     .position(location.latLng)
                     .title("当前位置")
                     .anchor(0.5f, 0.5f)
-                    .zIndex(30f)
+                    .zIndex(ZIndexCurrentLocation)
                     .icon(BitmapDescriptorFactory.fromBitmap(createCurrentLocationBitmap(context)))
             )
             return
@@ -735,13 +581,12 @@ internal class AMapLiveTrackRenderer {
 
     private fun resetState() {
         runCatching { map?.clear() }
+        labels.reset()
         renderedCount = 0
         lastRenderedTime = Long.MIN_VALUE
         lastPoint = null
-        endLabel = null
         tailPoints = mutableListOf()
         tailPolyline = null
-        endMarker = null
         currentMarker = null
         currentCircle = null
         cumulativeMeters = 0f

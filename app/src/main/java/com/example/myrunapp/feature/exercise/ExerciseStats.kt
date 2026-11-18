@@ -252,7 +252,13 @@ fun buildExerciseStatsDetail(
         period = period,
         periodOffset = safeOffset,
         title = period.statsTitle,
-        rangeText = buildStatsRangeText(startMillis, endMillis),
+        periodLabel = statsPeriodLabel(period, safeOffset, startMillis, endMillis),
+        rangeText = buildStatsRangeText(
+            period = period,
+            startMillis = startMillis,
+            endMillis = endMillis,
+            isCurrentPeriod = safeOffset == 0
+        ),
         canGoNext = safeOffset < 0,
         canGoPrevious = safeOffset > minOffset,
         totalDistanceKm = totalDistance,
@@ -468,7 +474,94 @@ private val ExerciseStatsPeriod.statsTitle: String
         ExerciseStatsPeriod.YEAR -> "年统计"
     }
 
-private fun buildStatsRangeText(startMillis: Long, endMillis: Long): String {
-    return "${AppDateFormats.formatIsoDate(startMillis)} 至 ${AppDateFormats.formatIsoDate(endMillis)}"
+/**
+ * 周期 pill 文案：本期只显示「本周 / 本月 / 今年」，翻页后显示「相对词 · 区间」，
+ * 例如「上周 · 11.09-11.15」「3个月前 · 2026.08」。
+ *
+ * 放在数据层生成，Composable 只负责渲染，避免再出现「翻页后只剩一个字」的退化。
+ */
+internal fun statsPeriodLabel(
+    period: ExerciseStatsPeriod,
+    offset: Int,
+    rangeStartMillis: Long,
+    rangeEndMillis: Long
+): String = when (period) {
+    ExerciseStatsPeriod.WEEK -> when (offset) {
+        0 -> "本周"
+        else -> "${weekRelativeLabel(offset)} · " +
+            AppDateFormats.format("MM.dd", rangeStartMillis) + "-" +
+            AppDateFormats.format("MM.dd", rangeEndMillis)
+    }
+
+    ExerciseStatsPeriod.MONTH -> when (offset) {
+        0 -> "本月"
+        else -> "${monthRelativeLabel(offset)} · " + AppDateFormats.format("yyyy.M", rangeStartMillis)
+    }
+
+    ExerciseStatsPeriod.YEAR -> when (offset) {
+        0 -> "今年"
+        else -> "${yearRelativeLabel(offset)} · " + AppDateFormats.format("yyyy", rangeStartMillis)
+    }
 }
+
+private fun weekRelativeLabel(offset: Int): String = if (offset == -1) "上周" else "${-offset}周前"
+
+private fun monthRelativeLabel(offset: Int): String = if (offset == -1) "上月" else "${-offset}个月前"
+
+private fun yearRelativeLabel(offset: Int): String = if (offset == -1) "去年" else "${-offset}年前"
+
+/**
+ * 周期区间文案：起止同一天只写一天，跨年时两端都带年份，
+ * 同一年但非当年时在起始端带一次年份，完整年只写「yyyy年」。
+ *
+ * 例：11月16日 - 11月17日 / 2025年10月20日 - 10月26日 /
+ *     2025年12月29日 - 2026年1月4日 / 2025年 / 2026年（至 11月17日）。
+ */
+internal fun buildStatsRangeText(
+    period: ExerciseStatsPeriod,
+    startMillis: Long,
+    endMillis: Long,
+    isCurrentPeriod: Boolean,
+    nowMillis: Long = System.currentTimeMillis()
+): String {
+    val start = Calendar.getInstance().apply { timeInMillis = startMillis }
+    val end = Calendar.getInstance().apply { timeInMillis = endMillis }
+    val currentYear = Calendar.getInstance().apply { timeInMillis = nowMillis }.get(Calendar.YEAR)
+    val startYear = start.get(Calendar.YEAR)
+    val endYear = end.get(Calendar.YEAR)
+    val sameDay = dateKey(startMillis) == dateKey(endMillis)
+    return when (period) {
+        ExerciseStatsPeriod.WEEK -> when {
+            startYear != endYear ->
+                "${yearText(startYear)}${monthDayText(startMillis)} - " +
+                    "${yearText(endYear)}${monthDayText(endMillis)}"
+
+            startYear != currentYear ->
+                "${yearText(startYear)}${monthDayText(startMillis)} - ${monthDayText(endMillis)}"
+
+            sameDay -> monthDayText(startMillis)
+            else -> "${monthDayText(startMillis)} - ${monthDayText(endMillis)}"
+        }
+
+        ExerciseStatsPeriod.MONTH -> {
+            val yearPrefix = if (startYear != currentYear) yearText(startYear) else ""
+            if (sameDay) {
+                "$yearPrefix${monthDayText(startMillis)}"
+            } else {
+                "$yearPrefix${monthDayText(startMillis)} - ${monthDayText(endMillis)}"
+            }
+        }
+
+        ExerciseStatsPeriod.YEAR -> if (isCurrentPeriod) {
+            "${yearText(startYear)}（至 ${monthDayText(endMillis)}）"
+        } else {
+            yearText(startYear)
+        }
+    }
+}
+
+private fun monthDayText(timeMillis: Long): String =
+    AppDateFormats.format("M月d日", timeMillis, Locale.CHINA)
+
+private fun yearText(year: Int): String = "${year}年"
 

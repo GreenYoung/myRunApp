@@ -3,7 +3,6 @@ package com.example.myrunapp.feature.weight
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,12 +34,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.myrunapp.ui.components.appClickable
 import com.example.myrunapp.ui.components.AppPageTopBar
 import com.example.myrunapp.ui.components.AppPrimaryButton
 import com.example.myrunapp.ui.components.AppSecondaryButton
 import com.example.myrunapp.ui.components.PageTopSpacing
 import com.example.myrunapp.ui.dialogs.TargetWeightDialog
 import com.example.myrunapp.ui.dialogs.WeightInputDialog
+import com.example.myrunapp.ui.dialogs.WeightOverwriteDialog
 import com.example.myrunapp.ui.theme.AppBackground
 import com.example.myrunapp.ui.theme.AppSecondaryText
 import com.example.myrunapp.ui.theme.MyRunAppTheme
@@ -83,6 +84,8 @@ fun WeightRoute(
         onTargetWeightChange = viewModel::onTargetWeightChange,
         onHeightCmChange = viewModel::onHeightCmChange,
         onSaveTargetWeight = viewModel::saveTargetWeight,
+        onConfirmOverwriteWeight = viewModel::confirmOverwriteWeight,
+        onCancelOverwriteWeight = viewModel::cancelOverwriteWeight,
         modifier = modifier
     )
 }
@@ -105,6 +108,8 @@ fun WeightDetailScreen(
     onTargetWeightChange: (String) -> Unit,
     onHeightCmChange: (String) -> Unit,
     onSaveTargetWeight: () -> Unit,
+    onConfirmOverwriteWeight: () -> Unit,
+    onCancelOverwriteWeight: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -163,12 +168,22 @@ fun WeightDetailScreen(
                 onSave = onSaveTargetWeight
             )
         }
+
+        uiState.pendingOverwriteDate?.let { date ->
+            WeightOverwriteDialog(
+                date = date,
+                weightText = uiState.inputWeight,
+                onConfirm = onConfirmOverwriteWeight,
+                onCancel = onCancelOverwriteWeight,
+                onDismiss = onCancelOverwriteWeight
+            )
+        }
     }
 }
 
 @Composable
 private fun WeightDetailTopBar(onBack: () -> Unit) {
-    AppPageTopBar(title = "体重", showBackButton = true, onBackClick = onBack)
+    AppPageTopBar(title = "", showBackButton = true, onBackClick = onBack)
 }
 
 /**
@@ -226,7 +241,7 @@ private fun WeightHeroCard(detail: WeightDetailUiState) {
                     text = detail.bmi.bmi?.let {
                         "BMI ${String.format(Locale.US, "%.1f", it)} · ${detail.bmi.category}"
                     } ?: "BMI --",
-                    color = AppSecondaryText
+                    color = detail.bmi.bmi.toBmiCategoryColor()
                 )
             }
             Box(
@@ -278,7 +293,6 @@ private fun WeightChip(text: String, color: Color) {
 @Composable
 private fun WeightTargetProgress(detail: WeightDetailUiState) {
     val target = detail.targetWeight
-    val remaining = detail.remainingWeight
     val progress = (detail.targetProgress ?: 0f).coerceIn(0f, 1f)
 
     if (target == null) {
@@ -286,6 +300,8 @@ private fun WeightTargetProgress(detail: WeightDetailUiState) {
         return
     }
 
+    val progressText = targetProgressText(detail.firstWeight, detail.latestWeight, target)
+    val achieved = progressText == "已达成"
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -298,14 +314,11 @@ private fun WeightTargetProgress(detail: WeightDetailUiState) {
             fontWeight = FontWeight.Medium
         )
         Text(
-            text = if (remaining != null && remaining > 0.0) {
-                "还差 ${formatWeight(remaining)} kg"
-            } else {
-                "已达成"
-            },
-            color = if (remaining != null && remaining > 0.0) WeightMint else DetailGreen,
+            text = progressText,
+            color = if (achieved) DetailGreen else WeightMint,
             fontSize = 13.sp,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Bold,
+            maxLines = 1
         )
     }
     Box(
@@ -340,7 +353,7 @@ private fun WeightTrendCard(detail: WeightDetailUiState, onClick: () -> Unit) {
             .clip(RoundedCornerShape(22.dp))
             .background(Brush.linearGradient(listOf(WeightTrendTop, WeightTrendBottom)))
             .border(1.dp, WeightHairline, RoundedCornerShape(22.dp))
-            .clickable(onClick = onClick)
+            .appClickable(onClick = onClick)
             .padding(horizontal = 18.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -471,13 +484,14 @@ private fun WeightRange.labelText(): String {
     }
 }
 
-internal fun Double?.toArrowChangeText(unit: Boolean): String {    if (this == null) return "--"
+internal fun Double?.toArrowChangeText(unit: Boolean): String {
+    if (this == null) return "--"
     val suffix = if (unit) " kg" else ""
     val value = formatWeight(abs(this))
     return when {
         this < 0.0 -> "↓ $value$suffix"
         this > 0.0 -> "↑ $value$suffix"
-        else -> "0.00$suffix"
+        else -> "· $value$suffix"
     }
 }
 
@@ -486,12 +500,23 @@ internal fun Double?.toSignedPlainText(): String {
     return String.format(Locale.US, "%+.2f kg", this)
 }
 
+/** 下降绿色、上升红色、不变也按绿色处理（显示为「·」）。 */
 internal fun Double?.toChangeColor(): Color {
     return when {
         this == null -> AppSecondaryText
-        this < 0.0 -> DetailGreen
         this > 0.0 -> DetailRed
-        else -> AppSecondaryText
+        else -> DetailGreen
+    }
+}
+
+/**
+ * BMI 标签颜色：正常/偏低为绿，偏高/肥胖为红（阈值与国际标准一致），无数据为灰。
+ */
+internal fun Double?.toBmiCategoryColor(): Color {
+    return when {
+        this == null -> AppSecondaryText
+        this < 25.0 -> DetailGreen
+        else -> DetailRed
     }
 }
 
@@ -511,7 +536,7 @@ private fun WeightDetailScreenPreview() {
                     remainingWeight = 5.20,
                     targetProgress = 0.35f,
                     latestDate = "2026-08-20",
-                    bmi = WeightBmiUiState(heightCm = 178.0, bmi = 24.4, category = "偏高"),
+                    bmi = WeightBmiUiState(heightCm = 168.0, bmi = 27.4, category = "偏高"),
                     changeSpeed = WeightChangeSpeedUiState(weeklyChangeKg = -0.42, description = "↓ 0.42 kg/周"),
                     exerciseCorrelation = WeightExerciseCorrelationUiState(
                         sevenDayDistanceKm = 12.3,
@@ -550,7 +575,9 @@ private fun WeightDetailScreenPreview() {
             onDismissTargetDialog = {},
             onTargetWeightChange = {},
             onHeightCmChange = {},
-            onSaveTargetWeight = {}
+            onSaveTargetWeight = {},
+            onConfirmOverwriteWeight = {},
+            onCancelOverwriteWeight = {}
         )
     }
 }

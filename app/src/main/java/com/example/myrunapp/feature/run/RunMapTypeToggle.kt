@@ -1,6 +1,5 @@
 package com.example.myrunapp.feature.run
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
@@ -21,8 +20,10 @@ fun RunMapTypeToggle(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // 用可点击 Surface：ripple 会按圆角裁剪，比在外层套 clickable 更干净
     Surface(
-        modifier = modifier.clickable(onClick = onClick),
+        onClick = onClick,
+        modifier = modifier,
         color = MapToggleBackground,
         shape = RoundedCornerShape(18.dp),
         tonalElevation = 0.dp,

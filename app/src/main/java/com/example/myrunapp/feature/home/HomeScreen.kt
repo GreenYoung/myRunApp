@@ -3,7 +3,6 @@ package com.example.myrunapp.feature.home
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -32,7 +32,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -46,12 +46,15 @@ import com.example.myrunapp.feature.weight.WeightCardUiState
 import com.example.myrunapp.feature.weight.WeightUiState
 import com.example.myrunapp.feature.weight.formatWeight
 import com.example.myrunapp.ui.components.PageHorizontalPadding
+import com.example.myrunapp.ui.components.appClickable
 import com.example.myrunapp.ui.components.PageTopSpacing
 import com.example.myrunapp.ui.theme.AppBackground
 import com.example.myrunapp.ui.theme.AppSecondaryText
+import com.example.myrunapp.ui.theme.NumericText
 import com.example.myrunapp.ui.theme.MyRunAppTheme
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 private val HomeGreen = Color(0xFF0BDA51)
 private val HomeMint = Color(0xFF34D399)
@@ -59,9 +62,8 @@ private val HomeSoftGreen = Color(0xFF86EFAC)
 private val HomeCyan = Color(0xFF22D3EE)
 private val HeroTop = Color(0xFF18261F)
 private val HeroBottom = Color(0xFF0D1418)
-private val CardSurface = Color(0xFF151B21)
 private val Hairline = Color(0x14FFFFFF)
-private val TabularNumbers = TextStyle(fontFeatureSettings = "tnum")
+private val TabularNumbers = NumericText
 
 @Composable
 fun HomeScreen(
@@ -87,17 +89,14 @@ fun HomeScreen(
             ),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        HomeHeader(streakDays = exerciseUiState.summary.streakDays)
-        TodayExerciseCard(
-            uiState = exerciseUiState.summary,
-            onStartClick = onStartOutdoorRunClick,
-            onClick = onExerciseClick
-        )
-        QuickModeRow(
-            onOutdoorClick = onStartOutdoorRunClick,
-            onTreadmillClick = onExerciseClick,
-            onFreeRunClick = onExerciseClick
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
+            HomeHeader(streakDays = exerciseUiState.summary.streakDays)
+            TodayExerciseCard(
+                uiState = exerciseUiState.summary,
+                onStartClick = onStartOutdoorRunClick,
+                onClick = onExerciseClick
+            )
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -122,37 +121,46 @@ fun HomeScreen(
     }
 }
 
+/**
+ * 顶部信息行：左边日期，右边连续运动 pill。
+ *
+ * 占位 72dp = 原来的 58dp 头部 + 14dp 间距，内容改为贴底对齐、底部留 2dp，
+ * 这样 pill 底边距今日运动卡片只有 2dp，而卡片及下方所有内容位置保持不变。
+ */
 @Composable
 private fun HomeHeader(
     streakDays: Int,
     modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(HomeHeaderHeight),
+        verticalArrangement = Arrangement.Bottom
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = HomeHeaderBottomGap),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text(
                 text = todayLabelText(),
                 color = AppSecondaryText,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium
             )
-            Text(
-                text = "今天，动起来",
-                color = Color.White,
-                fontSize = 26.sp,
-                lineHeight = 30.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
-        // 连续运动超过 1 天才展示连击标签；0 天或只有 1 天时整个标签隐藏
-        if (streakDays > 1) {
-            StreakPill(streakDays = streakDays)
+            // 连续运动超过 1 天才展示连击标签；0 天或只有 1 天时整个标签隐藏
+            if (streakDays > 1) {
+                StreakPill(streakDays = streakDays)
+            }
         }
     }
 }
+
+private val HomeHeaderHeight = 72.dp
+private val HomeHeaderBottomGap = 2.dp
 
 @Composable
 private fun StreakPill(streakDays: Int) {
@@ -208,7 +216,7 @@ private fun TodayExerciseCard(
                 )
             )
             .border(1.dp, Hairline, RoundedCornerShape(24.dp))
-            .clickable(onClick = onClick)
+            .appClickable(onClick = onClick)
             .padding(20.dp)
     ) {
         HeroGlow(modifier = Modifier.matchParentSize())
@@ -275,7 +283,7 @@ private fun TodayExerciseCard(
                     }
                     Text(
                         text = if (uiState.checkedInToday) {
-                            "每日目标 ${formatDistance(uiState.dailyGoalKm)} km · 已完成 ${(uiState.dailyProgress.coerceIn(0f, 1f) * 100).toInt()}%"
+                            "每日目标 ${formatDistance(uiState.dailyGoalKm)} km · 已完成 ${(uiState.dailyRatio * 100).roundToInt()}%"
                         } else {
                             "今天还没有运动记录"
                         },
@@ -283,7 +291,7 @@ private fun TodayExerciseCard(
                         fontSize = 12.sp
                     )
                 }
-                DailyGoalRing(progress = uiState.dailyProgress)
+                DailyGoalRing(ratio = uiState.dailyRatio)
             }
 
             StartRunButton(onClick = onStartClick)
@@ -346,12 +354,31 @@ private fun HeroGlow(modifier: Modifier = Modifier) {
     }
 }
 
+/** 完成度 ≥100% 后圆环/进度条开始换色，超额越多颜色越深。 */
+private fun progressColor(ratio: Float): Color {
+    return when {
+        ratio >= 3f -> Color(0xFF065F46)
+        ratio >= 2f -> Color(0xFF047857)
+        ratio >= 1f -> Color(0xFF059669)
+        else -> HomeGreen
+    }
+}
+
+/** 圆环上的「×2 / ×3」角标：完成度达到 2 倍才出现。 */
+private fun overAchieveMultiplier(ratio: Float): Int? {
+    return if (ratio >= 2f) ratio.toInt() else null
+}
+
 @Composable
 private fun DailyGoalRing(
-    progress: Float,
+    ratio: Float,
     modifier: Modifier = Modifier
 ) {
-    val safeProgress = progress.coerceIn(0f, 1f)
+    val safeRatio = ratio.coerceAtLeast(0f)
+    val sweepProgress = safeRatio.coerceAtMost(1f)
+    val ringColor = progressColor(safeRatio)
+    val highlight = lerp(ringColor, Color.White, 0.22f)
+
     Box(
         modifier = modifier.size(86.dp),
         contentAlignment = Alignment.Center
@@ -363,16 +390,16 @@ private fun DailyGoalRing(
                 style = Stroke(width = stroke)
             )
             drawArc(
-                brush = Brush.sweepGradient(listOf(HomeGreen, HomeMint, HomeGreen)),
+                brush = Brush.sweepGradient(listOf(ringColor, highlight, ringColor)),
                 startAngle = -90f,
-                sweepAngle = 360f * safeProgress,
+                sweepAngle = 360f * sweepProgress,
                 useCenter = false,
                 style = Stroke(width = stroke, cap = StrokeCap.Round)
             )
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                text = "${(safeProgress * 100).toInt()}%",
+                text = "${(safeRatio * 100).roundToInt()}%",
                 color = Color.White,
                 fontSize = 20.sp,
                 lineHeight = 22.sp,
@@ -385,6 +412,24 @@ private fun DailyGoalRing(
                 fontSize = 9.sp,
                 lineHeight = 11.sp
             )
+        }
+        overAchieveMultiplier(safeRatio)?.let { multiplier ->
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = 10.dp, y = (-4).dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(ringColor.copy(alpha = 0.22f))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = "×$multiplier",
+                    color = highlight,
+                    fontSize = 9.sp,
+                    lineHeight = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
     }
 }
@@ -406,7 +451,7 @@ private fun StartRunButton(
                     end = Offset.Infinite
                 )
             )
-            .clickable(onClick = onClick),
+            .appClickable(onClick = onClick),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -464,70 +509,6 @@ private fun HeroMetric(
 }
 
 @Composable
-private fun QuickModeRow(
-    onOutdoorClick: () -> Unit,
-    onTreadmillClick: () -> Unit,
-    onFreeRunClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        QuickModeItem(
-            text = "户外跑",
-            dotColor = HomeGreen,
-            onClick = onOutdoorClick,
-            modifier = Modifier.weight(1f)
-        )
-        QuickModeItem(
-            text = "跑步机",
-            dotColor = HomeCyan,
-            onClick = onTreadmillClick,
-            modifier = Modifier.weight(1f)
-        )
-        QuickModeItem(
-            text = "自由跑",
-            dotColor = HomeMint,
-            onClick = onFreeRunClick,
-            modifier = Modifier.weight(1f)
-        )
-    }
-}
-
-@Composable
-private fun QuickModeItem(
-    text: String,
-    dotColor: Color,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier
-            .height(52.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(CardSurface)
-            .border(1.dp, Hairline, RoundedCornerShape(14.dp))
-            .clickable(onClick = onClick),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(6.dp)
-                .background(dotColor, CircleShape)
-        )
-        Text(
-            text = " $text",
-            color = Color.White,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1
-        )
-    }
-}
-
-@Composable
 private fun HomeWeightCard(
     uiState: WeightCardUiState,
     onClick: () -> Unit,
@@ -545,7 +526,7 @@ private fun HomeWeightCard(
                 )
             )
             .border(1.dp, Hairline, RoundedCornerShape(20.dp))
-            .clickable(onClick = onClick)
+            .appClickable(onClick = onClick)
             .padding(16.dp),
         verticalArrangement = Arrangement.SpaceBetween
     ) {
@@ -622,7 +603,11 @@ private fun HomeWeeklyGoalCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val progress = uiState.weeklyProgress.coerceIn(0f, 1f)
+    val ratio = uiState.weeklyRatio
+    val fill = ratio.coerceIn(0f, 1f)
+    val barColor = progressColor(ratio)
+    val barHighlight = lerp(barColor, Color.White, 0.22f)
+    val overKm = (uiState.weeklyDistanceKm - uiState.weeklyGoalKm).coerceAtLeast(0.0)
     Column(
         modifier = modifier
             .heightIn(min = 132.dp)
@@ -635,7 +620,7 @@ private fun HomeWeeklyGoalCard(
                 )
             )
             .border(1.dp, Hairline, RoundedCornerShape(20.dp))
-            .clickable(onClick = onClick)
+            .appClickable(onClick = onClick)
             .padding(16.dp),
         verticalArrangement = Arrangement.SpaceBetween
     ) {
@@ -651,8 +636,8 @@ private fun HomeWeeklyGoalCard(
                 fontWeight = FontWeight.Medium
             )
             Text(
-                text = "${(progress * 100).toInt()}%",
-                color = HomeSoftGreen,
+                text = "${(ratio * 100).roundToInt()}%",
+                color = barColor,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
                 style = TabularNumbers
@@ -694,17 +679,34 @@ private fun HomeWeeklyGoalCard(
             ) {
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth(progress)
+                        .fillMaxWidth(fill)
                         .height(6.dp)
                         .clip(RoundedCornerShape(3.dp))
                         .background(
-                            Brush.horizontalGradient(listOf(HomeGreen, HomeMint))
+                            Brush.horizontalGradient(listOf(barColor, barHighlight))
                         )
                 )
+                if (ratio > 1f) {
+                    // 超过 100%：整条进度条叠斜纹，表示"已经跑满并超额"
+                    Canvas(modifier = Modifier.matchParentSize()) {
+                        val step = 8.dp.toPx()
+                        val stripeWidth = 3.dp.toPx()
+                        var x = -size.height
+                        while (x < size.width) {
+                            drawLine(
+                                color = Color.White.copy(alpha = 0.22f),
+                                start = Offset(x, size.height),
+                                end = Offset(x + size.height, 0f),
+                                strokeWidth = stripeWidth
+                            )
+                            x += step
+                        }
+                    }
+                }
             }
             Text(
-                text = if (uiState.weeklyGoalCompleted) {
-                    "本周目标已完成"
+                text = if (ratio >= 1f) {
+                    "已超额 ${formatDistance(overKm)} km"
                 } else {
                     "还差 ${formatDistance(uiState.weeklyRemainingKm)} km"
                 },
@@ -761,10 +763,11 @@ private fun HomeScreenPreview() {
             ),
             exerciseUiState = ExerciseUiState(
                 summary = ExerciseSummaryUiState(
-                    todayDistanceKm = 5.20,
+                    // 预览用超额数据：今日 10.2 / 5 km = 204%，本周 40 / 20 km = 200%
+                    todayDistanceKm = 10.20,
                     dailyGoalKm = 5.00,
-                    dailyProgress = 0.65f,
-                    weeklyDistanceKm = 21.30,
+                    dailyProgress = 1f,
+                    weeklyDistanceKm = 40.00,
                     weeklyGoalKm = 20.00,
                     weeklyProgress = 1f,
                     weeklyRemainingKm = 0.00,

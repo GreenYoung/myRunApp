@@ -16,6 +16,7 @@ import android.location.LocationManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -38,6 +39,7 @@ import com.example.myrunapp.feature.run.data.RunDraftEntity
 import com.example.myrunapp.feature.run.data.RunSessionEntity
 import com.example.myrunapp.feature.run.data.RunTrackPointEntity
 import com.example.myrunapp.feature.weight.todayIsoDate
+import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
@@ -69,9 +71,26 @@ class RunTrackingService : Service() {
     private var amapLocationClient: AMapLocationClient? = null
     private var timerJob: Job? = null
     private var isSaving = false
+    /** 起点墙上时间，只用于落库的 startTime 与草稿展示，不参与计时。 */
     private var startTime: Long = 0L
+
+    /** 本次暂停开始的墙上时间，只写进草稿，不参与计时。 */
     private var pausedAtMs: Long = 0L
+
+    /** 累计暂停的墙上时长，只写进草稿，不参与计时。 */
     private var totalPausedMs: Long = 0L
+
+    /** 本段计时基准（elapsedRealtime），改系统时间不会影响。 */
+    private var startElapsedMs: Long = 0L
+
+    /** 本次暂停开始的 elapsed 时刻；0 表示当前未暂停。 */
+    private var pausedAtElapsedMs: Long = 0L
+
+    /** 本段累计暂停的 elapsed 时长。 */
+    private var totalPausedElapsedMs: Long = 0L
+
+    /** 草稿恢复时已经累计的时长。 */
+    private var baseDurationMs: Long = 0L
     private var skipNextAcceptedPoint = false
     private var totalDistanceMeters = 0.0
     private var trackingWeightKg = 70.0
@@ -218,6 +237,10 @@ class RunTrackingService : Service() {
         startTime = System.currentTimeMillis()
         pausedAtMs = 0L
         totalPausedMs = 0L
+        startElapsedMs = SystemClock.elapsedRealtime()
+        pausedAtElapsedMs = 0L
+        totalPausedElapsedMs = 0L
+        baseDurationMs = 0L
         skipNextAcceptedPoint = false
         totalDistanceMeters = 0.0
         trackingWeightKg = 70.0
@@ -264,6 +287,9 @@ class RunTrackingService : Service() {
         if (!current.isTracking || current.isPaused || isSaving) return
 
         pausedAtMs = System.currentTimeMillis()
+        pausedAtElapsedMs = SystemClock.elapsedRealtime()
+        // 暂停即停定位：不再每秒回调、也不再耗电；恢复时重新校准起点（skipNextAcceptedPoint）
+        stopLocationUpdates()
         RunTrackingStateStore.update {
             it.copy(
                 isPaused = true,
@@ -290,6 +316,14 @@ class RunTrackingService : Service() {
             totalPausedMs += (now - pausedAtMs).coerceAtLeast(0L)
         }
         pausedAtMs = 0L
+        val elapsedNow = SystemClock.elapsedRealtime()
+        val pauseElapsedMs = if (pausedAtElapsedMs > 0L) {
+            (elapsedNow - pausedAtElapsedMs).coerceAtLeast(0L)
+        } else {
+            0L
+        }
+        totalPausedElapsedMs += pauseElapsedMs
+        pausedAtElapsedMs = 0L
         skipNextAcceptedPoint = true
         gpsTrackFilter.reset()
         resetLocationHealthWatch()
@@ -300,6 +334,24 @@ class RunTrackingService : Service() {
                 gpsStatusText = "重新定位中",
                 errorMessage = null
             )
+        }
+        // 暂停期间定位是关掉的，恢复时必须重启客户端；失败则回滚成"仍然暂停"，
+        // 避免用户以为在跑、实际没有定位、时长却继续累加。
+        val restartError = runCatching { startAmapLocationUpdates() }.exceptionOrNull()
+        if (restartError != null) {
+            AppLogger.e(LogTags.GPS, "resume AMap location failed", restartError)
+            totalPausedElapsedMs = (totalPausedElapsedMs - pauseElapsedMs).coerceAtLeast(0L)
+            pausedAtElapsedMs = elapsedNow
+            pausedAtMs = now
+            RunTrackingStateStore.update {
+                it.copy(
+                    isPaused = true,
+                    gpsStatusText = "定位恢复失败",
+                    errorMessage = "定位恢复失败，请重试或结束本次跑步"
+                )
+            }
+            updateNotification()
+            return
         }
         persistDraftSnapshot(force = true)
         updateNotification()
@@ -355,6 +407,10 @@ class RunTrackingService : Service() {
         startTime = 0L
         pausedAtMs = 0L
         totalPausedMs = 0L
+        startElapsedMs = 0L
+        pausedAtElapsedMs = 0L
+        totalPausedElapsedMs = 0L
+        baseDurationMs = 0L
         skipNextAcceptedPoint = false
         totalDistanceMeters = 0.0
         trackingWeightKg = 70.0
@@ -396,11 +452,15 @@ class RunTrackingService : Service() {
                 return@launch
             }
 
-            val now = System.currentTimeMillis()
             startTime = draft.startTime
-            totalPausedMs = draft.totalPausedMs +
-                if (draft.pausedAtMs > 0L) (now - draft.pausedAtMs).coerceAtLeast(0L) else 0L
+            // 计时以草稿里已记录的时长重新起算：保存到恢复之间的空档天然不计入，
+            // 也不再依赖墙上时钟，恢复后改系统时间同样不影响。
+            baseDurationMs = draft.durationSeconds * 1000L
+            startElapsedMs = SystemClock.elapsedRealtime()
             pausedAtMs = 0L
+            totalPausedMs = 0L
+            pausedAtElapsedMs = 0L
+            totalPausedElapsedMs = 0L
             skipNextAcceptedPoint = true
             totalDistanceMeters = draft.totalDistanceMeters
             trackingWeightKg = draft.weightKg
@@ -408,7 +468,7 @@ class RunTrackingService : Service() {
             gpsTrackFilter.reset()
             resetLocationHealthWatch()
 
-            val durationSeconds = activeDurationSeconds(now)
+            val durationSeconds = activeDurationSeconds()
             val distanceKm = totalDistanceMeters / 1000.0
             RunTrackingStateStore.update {
                 RunTrackingUiState(
@@ -574,7 +634,8 @@ class RunTrackingService : Service() {
 
     private suspend fun saveRun(current: RunTrackingUiState): Long = withContext(Dispatchers.IO) {
         val database = AppDatabase.getInstance(applicationContext)
-        val endTime = System.currentTimeMillis()
+        // 用"起点 + 计时时长"算结束时间：墙上时钟被改过也不会出现 endTime < startTime
+        val endTime = startTime + current.durationSeconds * 1000L
         val recordDate = todayIsoDate()
         val weightKg = database.weightDao().getLatestWeightOnOrBefore(recordDate)?.weightKg ?: 70.0
         val caloriesKcal = estimateExerciseCalories(
@@ -625,7 +686,10 @@ class RunTrackingService : Service() {
                     createdAt = endTime
                 )
             )
-            database.runDao().insertTrackPoints(points.map { it.copy(sessionId = newSessionId) })
+            // 分批写入：SQLite 单语句变量上限 999，长跑（上万点）一次性构造会占大量内存
+            points.chunked(500).forEach { chunk ->
+                database.runDao().insertTrackPoints(chunk.map { it.copy(sessionId = newSessionId) })
+            }
             AppLogger.i(
                 LogTags.DATABASE,
                 "run saved sessionId=$newSessionId exerciseRecordId=$exerciseRecordId duration=${durationSeconds}s " +
@@ -666,7 +730,9 @@ class RunTrackingService : Service() {
                             acceptedDistanceMeters = result.distanceFromPreviousMeters
                         )
                     }
-                    val points = current.trackPoints + result.point
+                    // 持久化列表追加是 O(log32 n)，不会像 list + element 那样每点复制整表；
+                    // 状态里仍用 List 类型，调用方（渲染器/保存/预览）无需改动。
+                    val points = current.trackPoints.toPersistentList().add(result.point)
                     val distanceKm = totalDistanceMeters / 1000.0
                     AppLogger.d(
                         LogTags.TRACK,
@@ -826,10 +892,17 @@ class RunTrackingService : Service() {
         gpsFixSinceRestart = true
     }
 
-    private fun activeDurationSeconds(now: Long = System.currentTimeMillis()): Long {
-        val effectiveNow = if (pausedAtMs > 0L) pausedAtMs else now
-        return ((effectiveNow - startTime - totalPausedMs).coerceAtLeast(0L) / 1000L)
-    }
+    /**
+     * 只按单调时钟计时：墙上时钟只决定 startTime（落库用），
+     * 用户改系统时间 / NTP 校时 / 跨时区都不会让时长跳变。
+     */
+    private fun activeDurationSeconds(): Long = computeActiveDurationSeconds(
+        baseDurationMs = baseDurationMs,
+        startElapsedMs = startElapsedMs,
+        totalPausedElapsedMs = totalPausedElapsedMs,
+        pausedAtElapsedMs = pausedAtElapsedMs,
+        nowElapsedMs = SystemClock.elapsedRealtime()
+    )
 
     private fun loadTrackingWeight() {
         serviceScope.launch(Dispatchers.IO) {
@@ -988,7 +1061,7 @@ class RunTrackingService : Service() {
         )
         val title = if (state.isPaused) "MyRun 跑步已暂停" else "MyRun 正在记录跑步"
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat_run)
             .setContentTitle(title)
             .setContentText("${formatDistance(state.distanceKm)} km · ${formatRunClock(state.durationSeconds)} · ${state.averagePaceText}")
             .setContentIntent(contentIntent)

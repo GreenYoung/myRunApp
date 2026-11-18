@@ -3,7 +3,6 @@ package com.example.myrunapp.feature.exercise
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,7 +32,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -43,6 +41,7 @@ import com.example.myrunapp.feature.run.formatRunClock
 import com.example.myrunapp.ui.components.AppPageTopBar
 import com.example.myrunapp.ui.components.AppPrimaryButton
 import com.example.myrunapp.ui.components.AppSecondaryButton
+import com.example.myrunapp.ui.components.appClickable
 import com.example.myrunapp.ui.components.PageTopSpacing
 import com.example.myrunapp.ui.dialogs.AddExerciseRecordDialog
 import com.example.myrunapp.ui.dialogs.DeleteExerciseRecordDialog
@@ -50,15 +49,17 @@ import com.example.myrunapp.ui.dialogs.ExerciseGoalDialog
 import com.example.myrunapp.ui.dialogs.ExerciseRecordActionDialog
 import com.example.myrunapp.ui.theme.AppBackground
 import com.example.myrunapp.ui.theme.AppSecondaryText
+import com.example.myrunapp.ui.theme.NumericText
 import com.example.myrunapp.ui.theme.MyRunAppTheme
 
 internal val ExerciseGreen = Color(0xFF22C55E)
-internal val ExerciseTabularNumbers = TextStyle(fontFeatureSettings = "tnum")
+internal val ExerciseTabularNumbers = NumericText
 
 private val ExerciseCardTop = Color(0xFF1A2530)
 private val ExerciseCardBottom = Color(0xFF10161D)
 private val ExerciseDivider = Color(0x14FFFFFF)
 private val ExerciseSegmentedBackground = Color(0xB30C1218)
+private val ExerciseSegmentSurface = Color.White.copy(alpha = 0.04f)
 
 @Composable
 fun ExerciseRoute(
@@ -243,7 +244,7 @@ fun ExerciseDetailScreen(
 
 @Composable
 private fun ExerciseDetailTopBar(onBack: () -> Unit) {
-    AppPageTopBar(title = "运动记录", showBackButton = true, onBackClick = onBack)
+    AppPageTopBar(title = "", showBackButton = true, onBackClick = onBack)
 }
 
 @Composable
@@ -339,7 +340,7 @@ private fun ExerciseGoalChip(onClick: () -> Unit) {
             .clip(RoundedCornerShape(50))
             .background(ExerciseGreen.copy(alpha = 0.12f))
             .border(1.dp, ExerciseGreen.copy(alpha = 0.3f), RoundedCornerShape(50))
-            .clickable(onClick = onClick)
+            .appClickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -395,30 +396,51 @@ private fun ExerciseStatsSegmented(
             .fillMaxWidth()
             .background(ExerciseSegmentedBackground, RoundedCornerShape(12.dp))
             .padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
         listOf(
             ExerciseStatsPeriod.WEEK to "周统计",
             ExerciseStatsPeriod.MONTH to "月统计",
             ExerciseStatsPeriod.YEAR to "年统计"
         ).forEach { (period, label) ->
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(34.dp)
-                    .clip(RoundedCornerShape(9.dp))
-                    .clickable { onStatsPeriodClick(period) },
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = label,
-                    color = ExerciseGreen,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1
-                )
-            }
+            ExerciseStatsSegment(
+                label = label,
+                onClick = { onStatsPeriodClick(period) },
+                modifier = Modifier.weight(1f)
+            )
         }
+    }
+}
+
+/**
+ * 单个统计入口。
+ *
+ * 这三段是"进入对应统计详情页"的入口、不是切换本页内容的 tab，所以刻意不做选中态；
+ * 用轻微底色 + 圆角把三者分成三块，靠间隙分隔（不加分割线），按下时底色加深——
+ * 深色卡片上默认 ripple 的颜色来自 LocalContentColor（默认黑色）、几乎看不见，故显式改用按下态背景。
+ */
+@Composable
+private fun ExerciseStatsSegment(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .height(38.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(ExerciseSegmentSurface)
+            .appClickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            color = ExerciseGreen,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1
+        )
     }
 }
 
@@ -466,7 +488,7 @@ private fun ExerciseDetailScreenPreview() {
                     ),
                     consistency = ExerciseConsistencyUiState(streakDays = 48),
                     records = listOf(
-                        ExerciseRecordUiModel(1, ExerciseType.TREADMILL, 1_777_046_400_000, 1_980, 5.20, "跑步机", "2026-08-21", "5.20 km", "33min", "6'23\"/km", "356 kcal"),
+                        ExerciseRecordUiModel(1, ExerciseType.TREADMILL, 1_777_046_400_000, 1_980, 5.20, "室内", "2026-08-21", "5.20 km", "33min", "6'23\"/km", "356 kcal"),
                         ExerciseRecordUiModel(2, ExerciseType.OUTDOOR_RUNNING, 1_776_960_000_000, 5_460, 4.80, "户外", "2026-08-20", "4.80 km", "1h31min", "6'35\"/km", "328 kcal")
                     )
                 ),

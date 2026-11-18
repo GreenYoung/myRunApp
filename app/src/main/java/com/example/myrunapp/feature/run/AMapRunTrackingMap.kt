@@ -13,13 +13,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -30,6 +31,7 @@ import com.amap.api.maps.AMap
 import com.amap.api.maps.LocationSource
 import com.amap.api.maps.MapView
 import com.amap.api.maps.model.BitmapDescriptorFactory
+import com.amap.api.maps.model.CameraPosition
 import com.amap.api.maps.model.LatLng
 import com.amap.api.maps.model.MyLocationStyle
 import com.example.myrunapp.core.log.AppLogger
@@ -53,7 +55,11 @@ fun AMapRunTrackingMap(
     onMapTouched: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val validPoints = remember(points) { points.filterValidRunMapPoints() }
+    // 用「点数 + 最后一点时间」做 key：轨迹点用持久化列表追加后仍是新对象，
+    // 若按对象引用做 key，每个点都会重跑一次 O(N) 过滤。
+    val validPoints = remember(points.size, points.lastOrNull()?.recordedAt) {
+        points.filterValidRunMapPoints()
+    }
     val trackSignature = remember(validPoints) {
         validPoints.lastOrNull()?.let { point ->
             31 * validPoints.size + point.recordedAt
@@ -67,6 +73,9 @@ fun AMapRunTrackingMap(
     var fallbackMapLocation by remember { mutableStateOf<RunMapLocation?>(null) }
     var mapConfigured by remember { mutableStateOf(false) }
     var configuredMap by remember { mutableStateOf<AMap?>(null) }
+    // MapView 状态与"是否已销毁"要跨重组保存：销毁标记用于拦住延迟执行的相机动画
+    val mapState = rememberSaveable { Bundle() }
+    val destroyedFlag = remember { booleanArrayOf(false) }
     val fallbackLocationSignature = fallbackMapLocation?.let { location ->
         31 * (location.latLng.latitude * 1_000_000).roundToLong() +
             (location.latLng.longitude * 1_000_000).roundToLong()
@@ -86,7 +95,7 @@ fun AMapRunTrackingMap(
         runCatching {
             AMapLocationClient.updatePrivacyShow(context.applicationContext, true, true)
             AMapLocationClient.updatePrivacyAgree(context.applicationContext, true)
-            MapView(context).apply { onCreate(Bundle()) }
+            MapView(context).apply { onCreate(mapState) }
         }.onFailure {
             AppLogger.e(LogTags.MAP, "create run tracking MapView failed", it)
         }.getOrNull()
@@ -99,18 +108,20 @@ fun AMapRunTrackingMap(
     val trackRenderer = remember(mapView) { AMapLiveTrackRenderer() }
 
     DisposableEffect(lifecycleOwner, mapView) {
-        var destroyed = false
         fun destroyOnce() {
-            if (!destroyed) {
+            if (!destroyedFlag[0]) {
+                destroyedFlag[0] = true
                 mapView.onDestroy()
-                destroyed = true
             }
         }
 
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME -> mapView.onResume()
-                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                Lifecycle.Event.ON_PAUSE -> {
+                    mapView.onSaveInstanceState(mapState)
+                    mapView.onPause()
+                }
                 Lifecycle.Event.ON_DESTROY -> destroyOnce()
                 else -> Unit
             }
@@ -157,6 +168,14 @@ fun AMapRunTrackingMap(
         val map = mapView.map
         configuredMap = map
         map.configureSportTrackUi(mapDisplayType)
+        // 缩放变化后重排里程标签（聚合/展开随缩放变化）；纯平移不会改变标记间相对距离，无需重排
+        map.setOnCameraChangeListener(object : AMap.OnCameraChangeListener {
+            override fun onCameraChange(position: CameraPosition?) = Unit
+
+            override fun onCameraChangeFinish(position: CameraPosition?) {
+                trackRenderer.relayoutIfZoomChanged(map, context)
+            }
+        })
         map.setOnMapTouchListener {
             if (autoFollow) {
                 AppLogger.d(LogTags.MAP, "map touched by user, disable auto follow")
@@ -205,7 +224,8 @@ fun AMapRunTrackingMap(
             isTracking = isTracking,
             autoFollow = autoFollow,
             mapDisplayType = mapDisplayType,
-            fallbackMapLocation = fallbackMapLocation
+            fallbackMapLocation = fallbackMapLocation,
+            isMapAlive = { !destroyedFlag[0] }
         )
     }
 
@@ -224,8 +244,13 @@ private fun AMap.renderRunTrackingTrack(
     isTracking: Boolean,
     autoFollow: Boolean,
     mapDisplayType: RunMapDisplayType,
-    fallbackMapLocation: RunMapLocation?
+    fallbackMapLocation: RunMapLocation?,
+    isMapAlive: () -> Boolean
 ) {
+    if (!isMapAlive()) {
+        AppLogger.d(LogTags.MAP, "skip track render because map is destroyed")
+        return
+    }
     AppLogger.d(
         LogTags.MAP,
         "track render executed points=${points.size} isTracking=$isTracking fallback=${fallbackMapLocation != null}"
@@ -242,6 +267,7 @@ private fun AMap.renderRunTrackingTrack(
         return
     }
     mapView.post {
+        if (!isMapAlive()) return@post
         val latestPoint = points.lastOrNull()?.toAmapLatLng()
         val latestTrackPoint = points.lastOrNull()
         when {
@@ -275,7 +301,11 @@ private fun AMap.renderRunTrackingTrack(
                 )
                 moveToCurrentLocation(fallbackMapLocation, mapDisplayType)
                 mapView.postDelayed(
-                    { moveToCurrentLocation(fallbackMapLocation, mapDisplayType) },
+                    {
+                        if (isMapAlive()) {
+                            moveToCurrentLocation(fallbackMapLocation, mapDisplayType)
+                        }
+                    },
                     350L
                 )
             }

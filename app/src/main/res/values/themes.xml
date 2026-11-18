@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.MyRunApp" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- App 是纯深色 UI：父主题用深色 + 窗口背景同色，避免冷启动闪白屏 -->
+    <style name="Theme.MyRunApp" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/app_window_background</item>
+    </style>
 </resources>

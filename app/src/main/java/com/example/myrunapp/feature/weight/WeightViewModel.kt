@@ -281,36 +281,62 @@ class WeightViewModel(
             return
         }
 
-        val now = System.currentTimeMillis()
         val weightKg = validation.weightKg ?: return
         viewModelScope.launch {
-            val editingDate = current.editingWeightDate
-            // 换日期时"删除旧日期 + 写入新日期"必须作为整体成功或失败。
-            database.withTransaction {
-                if (editingDate != null && editingDate != current.inputDate) {
-                    weightDao.deleteWeightByDate(editingDate)
-                }
-                val existing = weightDao.getWeightByDate(current.inputDate)
-                weightDao.upsertWeight(
-                    WeightRecordEntity(
-                        date = current.inputDate,
-                        weightKg = weightKg,
-                        note = current.inputNote.trim().takeIf { it.isNotEmpty() },
-                        createdAt = existing?.createdAt ?: now,
-                        updatedAt = now
-                    )
-                )
+            // 目标日期已有一条不同日期的记录时，先确认再覆盖，别静默丢数据。
+            val existing = weightDao.getWeightByDate(current.inputDate)
+            val editingSameDate = current.editingWeightDate == current.inputDate
+            if (existing != null && !editingSameDate) {
+                inputState.update { it.copy(pendingOverwriteDate = current.inputDate) }
+                return@launch
             }
-            inputState.update {
-                it.copy(
-                    isRecordDialogVisible = false,
-                    editingWeightDate = null,
-                    inputWeight = "",
-                    inputDate = todayIsoDate(),
-                    inputNote = "",
-                    inputError = null
-                )
+            persistWeight(weightKg)
+        }
+    }
+
+    /** 用户确认覆盖同日记录。 */
+    fun confirmOverwriteWeight() {
+        val current = uiState.value
+        val weightKg = validateWeightInput(current.inputDate, current.inputWeight).weightKg
+        inputState.update { it.copy(pendingOverwriteDate = null) }
+        if (weightKg == null) return
+        viewModelScope.launch { persistWeight(weightKg) }
+    }
+
+    fun cancelOverwriteWeight() {
+        inputState.update { it.copy(pendingOverwriteDate = null) }
+    }
+
+    private suspend fun persistWeight(weightKg: Double) {
+        val now = System.currentTimeMillis()
+        val current = uiState.value
+        val editingDate = current.editingWeightDate
+        // 换日期时"删除旧日期 + 写入新日期"必须作为整体成功或失败。
+        database.withTransaction {
+            if (editingDate != null && editingDate != current.inputDate) {
+                weightDao.deleteWeightByDate(editingDate)
             }
+            val existing = weightDao.getWeightByDate(current.inputDate)
+            weightDao.upsertWeight(
+                WeightRecordEntity(
+                    date = current.inputDate,
+                    weightKg = weightKg,
+                    note = current.inputNote.trim().takeIf { it.isNotEmpty() },
+                    createdAt = existing?.createdAt ?: now,
+                    updatedAt = now
+                )
+            )
+        }
+        inputState.update {
+            it.copy(
+                isRecordDialogVisible = false,
+                editingWeightDate = null,
+                inputWeight = "",
+                inputDate = todayIsoDate(),
+                inputNote = "",
+                inputError = null,
+                pendingOverwriteDate = null
+            )
         }
     }
 

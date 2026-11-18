@@ -556,3 +556,70 @@ fun DiscardRecoveredRunDialog(
         AppDialogMessage("未完成的跑步记录将被删除，且无法恢复。")
     }
 }
+
+/** 跑步进行中的"放弃"确认：数据直接丢弃，不落库。 */
+@Composable
+fun DiscardActiveRunDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AppDialogScaffold(
+        title = "放弃本次跑步？",
+        onDismiss = onDismiss,
+        confirmText = "放弃",
+        onConfirm = onConfirm,
+        actions = {
+            AppSecondaryButton(
+                text = "继续跑步",
+                onClick = onDismiss,
+                modifier = Modifier.weight(1f),
+                height = DialogButtonHeight,
+                cornerRadius = DialogButtonCorner
+            )
+            AppDangerButton(
+                text = "放弃",
+                onClick = onConfirm,
+                modifier = Modifier.weight(1f),
+                height = DialogButtonHeight,
+                cornerRadius = DialogButtonCorner
+            )
+        }
+    ) {
+        AppDialogMessage("已记录的距离和时长将被丢弃，且无法恢复。")
+    }
+}
+
+/** 体重录入撞到已有日期时的覆盖确认。 */
+@Composable
+fun WeightOverwriteDialog(
+    date: String,
+    weightText: String,
+    onConfirm: () -> Unit,
+    onCancel: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AppDialogScaffold(
+        title = "该日期已有记录",
+        onDismiss = onDismiss,
+        confirmText = "覆盖",
+        onConfirm = onConfirm,
+        actions = {
+            AppSecondaryButton(
+                text = "取消",
+                onClick = onCancel,
+                modifier = Modifier.weight(1f),
+                height = DialogButtonHeight,
+                cornerRadius = DialogButtonCorner
+            )
+            AppDangerButton(
+                text = "覆盖",
+                onClick = onConfirm,
+                modifier = Modifier.weight(1f),
+                height = DialogButtonHeight,
+                cornerRadius = DialogButtonCorner
+            )
+        }
+    ) {
+        AppDialogMessage("$date 已有一条体重记录，覆盖后将更新为 $weightText kg，原数值不会保留。")
+    }
+}

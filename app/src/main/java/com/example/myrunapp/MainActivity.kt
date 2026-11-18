@@ -1,7 +1,9 @@
 package com.example.myrunapp
 
+import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -48,7 +50,12 @@ private enum class AppDestination {
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // App 固定深色 UI：系统栏统一用"浅色图标"，否则系统处于浅色模式时
+        // 状态栏/导航栏会画成深色图标，落在深色背景上看不见。
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT)
+        )
         AppLogger.init(applicationContext)
         AppLogger.i(LogTags.APP, "MainActivity created")
 

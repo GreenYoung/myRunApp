@@ -5,7 +5,6 @@ import android.graphics.Paint
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -48,6 +47,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.myrunapp.ui.components.appClickable
 import com.example.myrunapp.ui.components.AppBackButton
 import com.example.myrunapp.ui.components.AppPageTopBar
 import com.example.myrunapp.ui.components.PageHorizontalPadding
@@ -144,7 +144,7 @@ fun WeightTrendScreen(
                     ),
                 verticalArrangement = Arrangement.spacedBy(if (isLandscape) 8.dp else 14.dp)
             ) {
-                AppPageTopBar(title = "体重趋势", showBackButton = true, onBackClick = onBack)
+                AppPageTopBar(title = "", showBackButton = true, onBackClick = onBack)
                 if (!isLandscape) {
                     WeightTrendSummaryCard(uiState = uiState)
                 }
@@ -189,7 +189,7 @@ private fun WeightTrendRangeSelector(
                         color = if (isSelected) TrendGreen.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.08f),
                         shape = RoundedCornerShape(50)
                     )
-                    .clickable { onRangeChange(range) }
+                    .appClickable { onRangeChange(range) }
                     .padding(vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {

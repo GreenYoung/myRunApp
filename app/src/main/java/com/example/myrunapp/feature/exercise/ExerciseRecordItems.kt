@@ -2,9 +2,11 @@ package com.example.myrunapp.feature.exercise
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,11 +16,14 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -27,12 +32,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.myrunapp.R
 import com.example.myrunapp.core.util.AppDateFormats
 import com.example.myrunapp.feature.run.RunTrackPointUiModel
 import com.example.myrunapp.feature.run.formatRunClock
+import com.example.myrunapp.ui.components.AppPressRippleColor
 import com.example.myrunapp.ui.theme.AppSecondaryText
 import java.util.Locale
 import kotlin.math.roundToLong
@@ -129,7 +139,9 @@ private fun ExerciseMonthCardHeader(
                 Text(
                     text = "累计 ${group.records.size} 次 · ${formatHoursText(group.totalDurationSeconds)}",
                     color = AppSecondaryText,
-                    fontSize = 11.sp
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -177,11 +189,14 @@ private fun ExerciseRecordRow(
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(IntrinsicSize.Min)
             .combinedClickable(
+                interactionSource = interactionSource,
+                indication = ripple(color = AppPressRippleColor),
                 onClick = onClick,
                 onLongClick = onLongClick
             )
@@ -192,13 +207,17 @@ private fun ExerciseRecordRow(
         val thumbnailModifier = Modifier
             .width(76.dp)
             .fillMaxHeight()
-        if (record.isOutdoorRun && record.hasTrack) {
-            TrackThumbnail(
+        when {
+            record.isOutdoorRun && record.hasTrack -> TrackThumbnail(
                 points = record.trackPoints,
                 modifier = thumbnailModifier
             )
-        } else {
-            ExerciseTypeBadge(
+
+            record.isIndoorRun -> IndoorRunThumbnail(
+                modifier = thumbnailModifier
+            )
+
+            else -> ExerciseTypeBadge(
                 record = record,
                 modifier = thumbnailModifier
             )
@@ -223,14 +242,32 @@ private fun ExerciseRecordRow(
                 maxLines = 1,
                 style = ExerciseTabularNumbers
             )
-            Text(
-                text = "${formatRunClock(record.durationSeconds)} · ${record.paceText.removeSuffix("/km")} · ${record.caloriesText}",
-                color = AppSecondaryText,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                style = ExerciseTabularNumbers
-            )
+            // 三段元信息：左段可压缩（省略号），热量单独一段不压缩，
+            // 保证"配速多一位数字"时也不会把 kcal 挤没。
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "${formatRunClock(record.durationSeconds)} · ${record.paceText.removeSuffix("/km")}",
+                    color = AppSecondaryText,
+                    fontSize = 12.sp,
+                    letterSpacing = 0.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
+                    style = ExerciseTabularNumbers,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                Text(
+                    text = " · ${record.caloriesText}",
+                    color = AppSecondaryText,
+                    fontSize = 12.sp,
+                    letterSpacing = 0.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    softWrap = false,
+                    style = ExerciseTabularNumbers
+                )
+            }
         }
         Column(
             horizontalAlignment = Alignment.End,
@@ -291,6 +328,31 @@ private fun ExerciseTypeBadge(
                 maxLines = 1
             )
         }
+    }
+}
+
+/**
+ * 室内跑缩略图：深色圆角容器 + 彩色跑步插画，替换原来的 emoji 徽章。
+ * 与户外跑的轨迹缩略图共用同一块视觉区域和同一种容器样式，容器内只放图形不放文字
+ * （「室内」类型已由行右侧的胶囊标出）。
+ */
+@Composable
+private fun IndoorRunThumbnail(
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(ExerciseThumbnailBackground)
+            .border(1.dp, ExerciseThumbnailBorder, RoundedCornerShape(14.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        Image(
+            painter = painterResource(R.drawable.ic_indoor_run),
+            contentDescription = "室内跑",
+            modifier = Modifier.size(48.dp),
+            contentScale = ContentScale.Fit
+        )
     }
 }
 

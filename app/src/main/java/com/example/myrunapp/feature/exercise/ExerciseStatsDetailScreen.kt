@@ -3,7 +3,6 @@ package com.example.myrunapp.feature.exercise
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -37,9 +37,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.myrunapp.ui.components.AppPageTopBar
+import com.example.myrunapp.ui.components.appClickable
 import com.example.myrunapp.ui.components.PageTopSpacing
 import com.example.myrunapp.ui.theme.AppBackground
 import com.example.myrunapp.ui.theme.AppSecondaryText
@@ -59,12 +61,17 @@ fun ExerciseStatsDetailRoute(
     modifier: Modifier = Modifier
 ) {
     var periodOffset by rememberSaveable(period) { mutableIntStateOf(0) }
-    val uiState by viewModel.observeStatsDetail(period, periodOffset).collectAsState(
-        initial = ExerciseStatsDetailUiState(
-            period = period,
-            periodOffset = periodOffset,
-            title = period.titleText
-        )
+    // 只在真正换周期时重建 Flow：否则每次重组都会新建一个数据库订阅。
+    val statsFlow = remember(period, periodOffset) {
+        viewModel.observeStatsDetail(period, periodOffset)
+    }
+    val uiState by statsFlow.collectAsState(
+        initial = viewModel.cachedStatsDetail(period, periodOffset)
+            ?: ExerciseStatsDetailUiState(
+                period = period,
+                periodOffset = periodOffset,
+                title = period.titleText
+            )
     )
 
     ExerciseStatsDetailScreen(
@@ -165,10 +172,7 @@ private fun ExerciseStatsHero(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                ExerciseStatsPeriodPill(
-                    period = uiState.period,
-                    periodOffset = uiState.periodOffset
-                )
+                ExerciseStatsPeriodPill(text = uiState.periodLabel)
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -217,10 +221,16 @@ private fun ExerciseStatsHero(
                             .background(ExerciseGreen)
                     )
                     Text(
-                        text = "累计里程 · ${uiState.rangeText}",
+                        text = when {
+                            uiState.recordCount > 0 -> "累计里程 · ${uiState.rangeText}"
+                            // rangeText 为空说明数据还没到，此时不显示空状态，避免进页面闪一下
+                            uiState.rangeText.isNotEmpty() -> "该周期暂无运动记录"
+                            else -> "累计里程"
+                        },
                         color = AppSecondaryText,
                         fontSize = 12.sp,
-                        maxLines = 1
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -229,23 +239,7 @@ private fun ExerciseStatsHero(
 }
 
 @Composable
-private fun ExerciseStatsPeriodPill(
-    period: ExerciseStatsPeriod,
-    periodOffset: Int
-) {
-    val text = if (periodOffset == 0) {
-        when (period) {
-            ExerciseStatsPeriod.WEEK -> "本周"
-            ExerciseStatsPeriod.MONTH -> "本月"
-            ExerciseStatsPeriod.YEAR -> "今年"
-        }
-    } else {
-        when (period) {
-            ExerciseStatsPeriod.WEEK -> "周"
-            ExerciseStatsPeriod.MONTH -> "月"
-            ExerciseStatsPeriod.YEAR -> "年"
-        }
-    }
+private fun ExerciseStatsPeriodPill(text: String) {
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(50))
@@ -274,7 +268,7 @@ private fun ExerciseStatsArrow(
             .size(28.dp)
             .clip(CircleShape)
             .background(Color.White.copy(alpha = if (enabled) 0.08f else 0.03f))
-            .clickable(enabled = enabled, onClick = onClick),
+            .appClickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Text(

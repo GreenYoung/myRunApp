@@ -189,17 +189,50 @@ fun filterWeightTrendPointsByRange(
     return records.filter { it.date in startDate..today }
 }
 
+/**
+ * 目标完成度，支持"减重"和"增重"两个方向。
+ *
+ * 方向由起始体重相对目标的偏置决定：total 用绝对值，moved 取朝目标方向走了多少，
+ * 因此增重目标不会再返回 null（旧实现会显示成"未设置"）。
+ */
 fun calculateTargetProgress(firstWeight: Double?, currentWeight: Double?, targetWeight: Double?): Float? {
     if (firstWeight == null || currentWeight == null || targetWeight == null) return null
-    val total = firstWeight - targetWeight
-    if (total <= 0.0) return null
-    val completed = firstWeight - currentWeight
-    return (completed / total).toFloat().coerceIn(0f, 1f)
+    val total = kotlin.math.abs(targetWeight - firstWeight)
+    if (total <= 0.0001) return null
+    val moved = if (targetWeight >= firstWeight) {
+        currentWeight - firstWeight
+    } else {
+        firstWeight - currentWeight
+    }
+    return (moved / total).toFloat().coerceIn(0f, 1f)
 }
 
+/** 当前体重与目标的距离（绝对值）；超额完成时也是"离目标多远"，不会出现负数。 */
 fun calculateRemainingWeight(currentWeight: Double?, targetWeight: Double?): Double? {
     if (currentWeight == null || targetWeight == null) return null
-    return (currentWeight - targetWeight).coerceAtLeast(0.0)
+    return kotlin.math.abs(currentWeight - targetWeight)
+}
+
+/**
+ * 目标进度文案：区分"还需减 / 还需增 / 已达成"。
+ *
+ * 方向由 [firstWeight] 决定（目标低于起始体重 = 减重，高于 = 增重）；
+ * 缺失起始记录时按减重处理（历史行为）。
+ */
+fun targetProgressText(
+    firstWeight: Double?,
+    currentWeight: Double?,
+    targetWeight: Double?
+): String {
+    if (targetWeight == null || currentWeight == null) return ""
+    val losing = firstWeight == null || targetWeight < firstWeight
+    val diff = currentWeight - targetWeight
+    return when {
+        losing && diff <= 0.05 -> "已达成"
+        !losing && diff >= -0.05 -> "已达成"
+        losing -> "还需减 ${formatWeight(diff)} kg"
+        else -> "还需增 ${formatWeight(-diff)} kg"
+    }
 }
 
 fun calculateBmiUiState(latestWeight: Double?, heightCm: Double?): WeightBmiUiState {
@@ -211,9 +244,10 @@ fun calculateBmiUiState(latestWeight: Double?, heightCm: Double?): WeightBmiUiSt
         .setScale(1, RoundingMode.HALF_UP)
         .toDouble()
     val category = when {
+        // 国际（WHO）BMI 标准
         bmi < 18.5 -> "偏低"
-        bmi < 24.0 -> "正常"
-        bmi < 28.0 -> "偏高"
+        bmi < 25.0 -> "正常"
+        bmi < 30.0 -> "偏高"
         else -> "肥胖"
     }
     return WeightBmiUiState(heightCm = heightCm, bmi = bmi, category = category)

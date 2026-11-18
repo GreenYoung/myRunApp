@@ -542,6 +542,27 @@ fun formatRunClock(durationSeconds: Long): String {
     return "%02d:%02d:%02d".format(hours, minutes, seconds)
 }
 
+/**
+ * 跑步时长计算：只依赖单调时钟（elapsedRealtime），墙上时钟怎么跳都不影响结果。
+ *
+ * @param baseDurationMs 草稿恢复时已经累计的时长（新跑步为 0）
+ * @param startElapsedMs 本段计时基准
+ * @param totalPausedElapsedMs 本段累计暂停时长
+ * @param pausedAtElapsedMs 本次暂停开始的时刻；0 表示当前未暂停（此时用 nowElapsedMs 计时）
+ * @param nowElapsedMs 当前单调时钟读数
+ */
+fun computeActiveDurationSeconds(
+    baseDurationMs: Long,
+    startElapsedMs: Long,
+    totalPausedElapsedMs: Long,
+    pausedAtElapsedMs: Long,
+    nowElapsedMs: Long
+): Long {
+    val effectiveNow = if (pausedAtElapsedMs > 0L) pausedAtElapsedMs else nowElapsedMs
+    val activeMs = (effectiveNow - startElapsedMs - totalPausedElapsedMs).coerceAtLeast(0L)
+    return (baseDurationMs + activeMs) / 1000L
+}
+
 fun formatRunInfoDuration(durationSeconds: Long): String {
     return formatRunClock(durationSeconds)
 }

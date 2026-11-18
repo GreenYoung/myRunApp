@@ -41,7 +41,15 @@ data class ExerciseSummaryUiState(
     val weeklyCaloriesKcal: Int = 0,
     val monthlyCaloriesKcal: Int = 0,
     val checkedInToday: Boolean = false
-)
+) {
+    /** 今日完成度，不封顶：5 km 目标跑 10 km 就是 2.0（200%）。 */
+    val dailyRatio: Float
+        get() = if (dailyGoalKm <= 0.0) 0f else (todayDistanceKm / dailyGoalKm).toFloat()
+
+    /** 本周完成度，不封顶：20 km 目标跑 40 km 就是 2.0（200%）。 */
+    val weeklyRatio: Float
+        get() = if (weeklyGoalKm <= 0.0) 0f else (weeklyDistanceKm / weeklyGoalKm).toFloat()
+}
 
 data class ExerciseRecordUiModel(
     val id: Long,
@@ -72,6 +80,9 @@ val ExerciseRecordUiModel.hasTrack: Boolean
 
 val ExerciseRecordUiModel.isOutdoorRun: Boolean
     get() = type == ExerciseType.OUTDOOR_RUNNING
+
+val ExerciseRecordUiModel.isIndoorRun: Boolean
+    get() = type == ExerciseType.TREADMILL
 
 val ExerciseRecordDetailUiState.isOutdoorRun: Boolean
     get() = record?.type == ExerciseType.OUTDOOR_RUNNING
@@ -107,6 +118,8 @@ data class ExerciseStatsDetailUiState(
     val period: ExerciseStatsPeriod = ExerciseStatsPeriod.WEEK,
     val periodOffset: Int = 0,
     val title: String = "周统计",
+    /** 顶部卡片 pill 文案：未翻页时是「本周/本月/今年」，翻页后由 statsPeriodLabel() 生成。 */
+    val periodLabel: String = defaultStatsPeriodLabel(period),
     val rangeText: String = "",
     val canGoNext: Boolean = false,
     val canGoPrevious: Boolean = true,
@@ -193,4 +206,11 @@ data class ExerciseValidationResult(
         durationSeconds != null &&
         distanceKm != null &&
         inclinePercent != null
+}
+
+/** 周期 pill 的默认文案（仅用于未翻页时的 UiState 默认值）。 */
+internal fun defaultStatsPeriodLabel(period: ExerciseStatsPeriod): String = when (period) {
+    ExerciseStatsPeriod.WEEK -> "本周"
+    ExerciseStatsPeriod.MONTH -> "本月"
+    ExerciseStatsPeriod.YEAR -> "今年"
 }

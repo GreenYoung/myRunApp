@@ -5,6 +5,8 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.pointerInput
@@ -24,6 +26,9 @@ fun SwipeBackContainer(
     val edgeWidthPx = with(density) { 32.dp.toPx() }
     val triggerDistancePx = with(density) { 80.dp.toPx() }
     val maxVerticalDistancePx = with(density) { 52.dp.toPx() }
+    // pointerInput 的 key 必须稳定：MainActivity 每次重组都会传新的 lambda，
+    // 直接用它当 key 会让手势检测在滑动过程中被重启。这里改用 rememberUpdatedState 取最新值。
+    val currentOnBack by rememberUpdatedState(onBack)
 
     Box(
         modifier = modifier
@@ -32,7 +37,7 @@ fun SwipeBackContainer(
                 if (!enabled) {
                     Modifier
                 } else {
-                    Modifier.pointerInput(onBack) {
+                    Modifier.pointerInput(Unit) {
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
                             if (down.position.x < size.width - edgeWidthPx) {
@@ -60,7 +65,7 @@ fun SwipeBackContainer(
                                 if (totalX <= -triggerDistancePx && !triggered) {
                                     triggered = true
                                     change.consume()
-                                    onBack()
+                                    currentOnBack()
                                     break
                                 }
                             }

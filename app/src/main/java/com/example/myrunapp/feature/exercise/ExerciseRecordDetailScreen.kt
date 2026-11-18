@@ -21,6 +21,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -96,7 +97,7 @@ private fun OutdoorRunRecordDetailScreen(
     modifier: Modifier = Modifier
 ) {
     val record = uiState.record ?: return
-    var mapDisplayType by remember { mutableStateOf(RunMapDisplayType.Normal) }
+    var mapDisplayType by rememberSaveable { mutableStateOf(RunMapDisplayType.Normal) }
 
     Box(
         modifier = modifier
@@ -326,7 +327,7 @@ private fun TreadmillRecordDetailScreen(
             ),
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
-        AppPageTopBar(title = "跑步记录", showBackButton = true, onBackClick = onBack)
+        AppPageTopBar(title = "", showBackButton = true, onBackClick = onBack)
         RecordDetailCard(record = record)
         Text(
             text = record.detailFootnote(),
@@ -384,11 +385,11 @@ private fun RecordCardGlow(modifier: Modifier = Modifier) {
     }
 }
 
-/** 详情页标题按运动类型走，和户外详情卡片的叫法保持一致（户外跑步 / 室内跑步）。 */
+/** 详情页标题按运动类型走，和列表里的类型叫法保持一致（户外跑 / 室内跑）。 */
 private fun ExerciseRecordUiModel.detailTypeLabel(): String {
     return when (type) {
-        ExerciseType.TREADMILL -> "室内跑步"
-        ExerciseType.OUTDOOR_RUNNING -> "户外跑步"
+        ExerciseType.TREADMILL -> "室内跑"
+        ExerciseType.OUTDOOR_RUNNING -> "户外跑"
     }
 }
 
@@ -398,7 +399,7 @@ private fun ExerciseRecordUiModel.detailDateText(): String {
 
 private fun ExerciseRecordUiModel.detailFootnote(): String {
     return when (type) {
-        ExerciseType.TREADMILL -> "跑步机模式不记录轨迹，以上数据来自本次运动记录。"
+        ExerciseType.TREADMILL -> "室内跑不记录轨迹，以上数据来自本次运动记录。"
         ExerciseType.OUTDOOR_RUNNING -> "本次户外跑步没有可用的轨迹数据。"
     }
 }

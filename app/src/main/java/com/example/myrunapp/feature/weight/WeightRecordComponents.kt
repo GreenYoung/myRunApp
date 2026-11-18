@@ -3,6 +3,7 @@ package com.example.myrunapp.feature.weight
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,6 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -28,6 +30,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.myrunapp.ui.components.AppDangerButton
+import com.example.myrunapp.ui.components.AppPressRippleColor
 import com.example.myrunapp.ui.components.AppPrimaryButton
 import com.example.myrunapp.ui.components.AppSecondaryButton
 import com.example.myrunapp.ui.dialogs.DeleteWeightRecordDialog
@@ -118,10 +121,13 @@ private fun WeightRecordRow(
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(
+                interactionSource = interactionSource,
+                indication = ripple(color = AppPressRippleColor),
                 onClick = onClick,
                 onLongClick = onLongClick
             )

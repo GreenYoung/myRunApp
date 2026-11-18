@@ -29,7 +29,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 private const val SaveResultTimeoutMs = 30_000L
 
-private data class RunPermissionState(
+internal data class RunPermissionState(
     val hasLocationPermission: Boolean = false,
     val hasNotificationPermission: Boolean = true
 )
@@ -74,6 +74,17 @@ class RunTrackingViewModel(
         }
     }
 
+    /**
+     * 刷新并**返回**最新权限状态。
+     *
+     * Screen 里不能在 `refreshPermission()` 之后再去读 `uiState` 快照——那是进入组合时的旧值，
+     * 会导致"权限已授予却再次弹窗"。需要立即判断时用这个函数。
+     */
+    internal fun refreshPermissionNow(): RunPermissionState {
+        refreshPermission()
+        return permissionState.value
+    }
+
     fun startTracking() {
         refreshPermission()
         val permissions = permissionState.value
@@ -89,12 +100,6 @@ class RunTrackingViewModel(
                     it.copy(errorMessage = "需要精确位置权限才能准确记录运动轨迹")
                 }
             }
-            !permissions.hasNotificationPermission -> {
-                AppLogger.w(LogTags.RUN, "start blocked in ViewModel: missing notification permission")
-                RunTrackingStateStore.update {
-                    it.copy(errorMessage = "需要通知权限才能在息屏时保持跑步记录")
-                }
-            }
             !locationEnabled -> {
                 AppLogger.w(LogTags.RUN, "start blocked in ViewModel: location disabled")
                 RunTrackingStateStore.update {
@@ -105,6 +110,11 @@ class RunTrackingViewModel(
                 }
             }
             else -> {
+                // 通知权限被拒不阻断：Android 13+ 前台服务本身不依赖它，只是通知栏看不到进度。
+                // 页面顶部的 GPS 状态条会提示"需要通知权限才能在息屏时保持跑步记录"。
+                if (!permissions.hasNotificationPermission) {
+                    AppLogger.w(LogTags.RUN, "notification permission missing, start anyway")
+                }
                 AppLogger.i(LogTags.RUN, "starting RunTrackingService")
                 ContextCompat.startForegroundService(appContext, RunTrackingService.startIntent(appContext))
             }

@@ -113,7 +113,7 @@ fun formatExerciseInputDate(startTime: Long): String {
 
 fun exerciseTypeText(type: ExerciseType): String {
     return when (type) {
-        ExerciseType.TREADMILL -> "跑步机"
+        ExerciseType.TREADMILL -> "室内"
         ExerciseType.OUTDOOR_RUNNING -> "户外"
     }
 }

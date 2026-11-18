@@ -50,6 +50,13 @@ class ExerciseViewModel(
         .map { it.detail.selectedStatsRange }
         .distinctUntilChanged()
 
+    /** 最近看过的 6 个统计周期，翻回头时直接命中，不用等数据库回流。 */
+    private val statsDetailCache = object : LinkedHashMap<String, ExerciseStatsDetailUiState>(8, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<String, ExerciseStatsDetailUiState>?
+        ): Boolean = size > 6
+    }
+
     private val thumbnailTrackPointsFlow = combine(
         runDao.observeSampledTrackPoints(THUMBNAIL_TRACK_STRIDE),
         runDao.observeTrackPointEdges()
@@ -234,10 +241,22 @@ class ExerciseViewModel(
         period: ExerciseStatsPeriod,
         periodOffset: Int = 0
     ): Flow<ExerciseStatsDetailUiState> {
+        val key = statsDetailCacheKey(period, periodOffset)
         return exerciseDao.observeAllExercises().map { records ->
-            buildExerciseStatsDetail(records, period, periodOffset)
+            buildExerciseStatsDetail(records, period, periodOffset).also { state ->
+                statsDetailCache[key] = state
+            }
         }
     }
+
+    /** 翻回已看过的周期时先用缓存渲染，避免又闪一次 0.00 km 占位。 */
+    fun cachedStatsDetail(
+        period: ExerciseStatsPeriod,
+        periodOffset: Int = 0
+    ): ExerciseStatsDetailUiState? = statsDetailCache[statsDetailCacheKey(period, periodOffset)]
+
+    private fun statsDetailCacheKey(period: ExerciseStatsPeriod, periodOffset: Int): String =
+        "${period.name}:$periodOffset"
 
     fun saveExercise() {
         val current = uiState.value

@@ -118,6 +118,8 @@ data class WeightUiState(
     val inputWeight: String = "",
     val inputNote: String = "",
     val inputError: String? = null,
+    /** 目标日期已有记录时，先挂起等用户确认覆盖。 */
+    val pendingOverwriteDate: String? = null,
     val isTargetDialogVisible: Boolean = false,
     val inputTargetWeight: String = "",
     val inputHeightCm: String = "",

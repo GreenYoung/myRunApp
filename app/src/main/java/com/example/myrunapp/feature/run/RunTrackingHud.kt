@@ -5,7 +5,6 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,6 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.myrunapp.ui.components.appClickable
 import com.example.myrunapp.ui.components.AppPrimaryButton
 import com.example.myrunapp.ui.components.AppSecondaryButton
 import com.example.myrunapp.ui.theme.AppSecondaryText
@@ -67,7 +67,7 @@ private fun RunDiscardButton(
         fontWeight = FontWeight.Medium,
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
-            .clickable(enabled = enabled, onClick = onClick)
+            .appClickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 8.dp)
     )
 }
@@ -298,7 +298,8 @@ internal fun RunTrackingOverlayCard(
     onFinish: () -> Unit,
     onContinueRecoveredDraft: () -> Unit,
     onSaveRecoveredDraft: () -> Unit,
-    onDiscardRecoveredDraft: () -> Unit
+    onDiscardRecoveredDraft: () -> Unit,
+    onDiscardRequest: () -> Unit
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -314,7 +315,8 @@ internal fun RunTrackingOverlayCard(
             onFinish = onFinish,
             onContinueRecoveredDraft = onContinueRecoveredDraft,
             onSaveRecoveredDraft = onSaveRecoveredDraft,
-            onDiscardRecoveredDraft = onDiscardRecoveredDraft
+            onDiscardRecoveredDraft = onDiscardRecoveredDraft,
+            onDiscardRequest = onDiscardRequest
         )
     }
 }
@@ -346,7 +348,7 @@ internal fun RunGpsStatus(
                 text = when {
                     !uiState.hasLocationPermission -> "需要精确位置权限才能准确记录运动轨迹"
                     !uiState.hasNotificationPermission -> "需要通知权限才能在息屏时保持跑步记录"
-                    uiState.isPaused -> "${uiState.gpsStatusText} · 息屏保持中"
+                    uiState.isPaused -> "${uiState.gpsStatusText} · 定位已关闭"
                     uiState.isServiceRunning -> "${uiState.gpsStatusText} · 息屏记录中"
                     else -> uiState.gpsStatusText
                 },
@@ -435,7 +437,8 @@ private fun RunTrackingActionButton(
     onFinish: () -> Unit,
     onContinueRecoveredDraft: () -> Unit,
     onSaveRecoveredDraft: () -> Unit,
-    onDiscardRecoveredDraft: () -> Unit
+    onDiscardRecoveredDraft: () -> Unit,
+    onDiscardRequest: () -> Unit
 ) {
     when {
         uiState.hasRecoveredDraft -> {
@@ -450,9 +453,7 @@ private fun RunTrackingActionButton(
         !uiState.hasLocationPermission -> {
             AppPrimaryButton(text = "开启定位权限", onClick = onRequestPermission, modifier = Modifier.fillMaxWidth(), height = RunActionButtonHeight)
         }
-        !uiState.hasNotificationPermission -> {
-            AppPrimaryButton(text = "开启通知权限", onClick = onRequestPermission, modifier = Modifier.fillMaxWidth(), height = RunActionButtonHeight)
-        }
+        // 通知权限只影响"熄屏后能不能看到通知"，不再阻断开始跑步
         uiState.isTracking -> {
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -478,6 +479,16 @@ private fun RunTrackingActionButton(
                     color = RunHudLabel.copy(alpha = 0.8f),
                     fontSize = 11.sp,
                     maxLines = 1
+                )
+                Text(
+                    text = "放弃本次跑步",
+                    color = RunHudLabel.copy(alpha = 0.55f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .appClickable(enabled = !uiState.isSaving, onClick = onDiscardRequest)
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
                 )
             }
         }

@@ -20,6 +20,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,6 +34,7 @@ import com.example.myrunapp.ui.components.AppBackButton
 import com.example.myrunapp.ui.components.PageHorizontalPadding
 import com.example.myrunapp.ui.components.PageTopSpacing
 import com.example.myrunapp.ui.dialogs.BatteryOptimizationDialog
+import com.example.myrunapp.ui.dialogs.DiscardActiveRunDialog
 import com.example.myrunapp.ui.dialogs.DiscardRecoveredRunDialog
 import com.example.myrunapp.ui.theme.MyRunAppTheme
 import kotlinx.coroutines.delay
@@ -63,8 +65,10 @@ fun RunTrackingRoute(
     }
 
     LaunchedEffect(Unit) {
-        viewModel.refreshPermission()
-        if (!uiState.hasLocationPermission || !uiState.hasNotificationPermission) {
+        // 用 refreshPermissionNow() 的返回值判断，而不是刷新后再读 uiState 快照：
+        // 后者是进入组合时的旧值，会导致权限已授予却再次弹窗。
+        val permission = viewModel.refreshPermissionNow()
+        if (!permission.hasLocationPermission || !permission.hasNotificationPermission) {
             permissionLauncher.launch(runTrackingPermissions())
         }
     }
@@ -88,6 +92,7 @@ fun RunTrackingRoute(
         onContinueRecoveredDraft = viewModel::continueRecoveredDraft,
         onSaveRecoveredDraft = { viewModel.saveRecoveredDraft(onSaved) },
         onDiscardRecoveredDraft = viewModel::discardRecoveredDraft,
+        onDiscard = viewModel::stopWithoutSaving,
         modifier = modifier
     )
 
@@ -122,12 +127,14 @@ fun RunTrackingScreen(
     onContinueRecoveredDraft: () -> Unit,
     onSaveRecoveredDraft: () -> Unit,
     onDiscardRecoveredDraft: () -> Unit,
+    onDiscard: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var mapDisplayType by remember { mutableStateOf(RunMapDisplayType.Normal) }
-    var autoFollow by remember { mutableStateOf(true) }
+    var mapDisplayType by rememberSaveable { mutableStateOf(RunMapDisplayType.Normal) }
+    var autoFollow by rememberSaveable { mutableStateOf(true) }
     var lastMapTouchAt by remember { mutableStateOf(0L) }
     var isDiscardRecoveredDialogVisible by remember { mutableStateOf(false) }
+    var isDiscardRunDialogVisible by remember { mutableStateOf(false) }
     val hasRunInfo = uiState.isTracking || uiState.distanceKm > 0.0 || uiState.durationSeconds > 0L
 
     LaunchedEffect(uiState.isTracking, uiState.trackPoints.size, uiState.distanceKm) {
@@ -241,7 +248,8 @@ fun RunTrackingScreen(
                 onFinish = onFinish,
                 onContinueRecoveredDraft = onContinueRecoveredDraft,
                 onSaveRecoveredDraft = onSaveRecoveredDraft,
-                onDiscardRecoveredDraft = { isDiscardRecoveredDialogVisible = true }
+                onDiscardRecoveredDraft = { isDiscardRecoveredDialogVisible = true },
+                onDiscardRequest = { isDiscardRunDialogVisible = true }
             )
         }
 
@@ -253,6 +261,16 @@ fun RunTrackingScreen(
                 },
                 onDecline = { isDiscardRecoveredDialogVisible = false },
                 onDismiss = { isDiscardRecoveredDialogVisible = false }
+            )
+        }
+
+        if (isDiscardRunDialogVisible) {
+            DiscardActiveRunDialog(
+                onConfirm = {
+                    isDiscardRunDialogVisible = false
+                    onDiscard()
+                },
+                onDismiss = { isDiscardRunDialogVisible = false }
             )
         }
     }
@@ -290,7 +308,8 @@ private fun RunTrackingScreenPreview() {
             onFinish = {},
             onContinueRecoveredDraft = {},
             onSaveRecoveredDraft = {},
-            onDiscardRecoveredDraft = {}
+            onDiscardRecoveredDraft = {},
+            onDiscard = {}
         )
     }
 }
@@ -319,7 +338,8 @@ private fun RunTrackingRecoveredPreview() {
             onFinish = {},
             onContinueRecoveredDraft = {},
             onSaveRecoveredDraft = {},
-            onDiscardRecoveredDraft = {}
+            onDiscardRecoveredDraft = {},
+            onDiscard = {}
         )
     }
 }
